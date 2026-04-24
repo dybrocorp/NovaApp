@@ -2,8 +2,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class SupabaseService {
-  static const String supabaseUrl = 'YOUR_SUPABASE_URL'; // User needs to fill this
-  static const String supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY'; // User needs to fill this
+  static const String supabaseUrl = 'https://jhadjzkynfsqxmbfwqbg.supabase.co';
+  static const String supabaseAnonKey = 'sb_publishable_rBY6P7NM9Yg0dktmSOtvdg_HORr42UR';
 
   static Future<void> initialize() async {
     await Supabase.initialize(
