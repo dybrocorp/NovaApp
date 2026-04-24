@@ -55,6 +55,7 @@ class ChatContact {
   final String? lastMessage;
   final DateTime? lastMessageTime;
   final bool isArchived;
+  final String? publicKey;
 
   ChatContact({
     required this.id,
@@ -62,6 +63,7 @@ class ChatContact {
     this.lastMessage,
     this.lastMessageTime,
     this.isArchived = false,
+    this.publicKey,
   });
 
   Map<String, dynamic> toMap() {
@@ -71,6 +73,7 @@ class ChatContact {
       'lastMessage': lastMessage,
       'lastMessageTime': lastMessageTime?.toIso8601String(),
       'isArchived': isArchived ? 1 : 0,
+      'publicKey': publicKey,
     };
   }
 
@@ -83,6 +86,7 @@ class ChatContact {
           ? DateTime.parse(map['lastMessageTime']) 
           : null,
       isArchived: map['isArchived'] == 1,
+      publicKey: map['publicKey'],
     );
   }
 }

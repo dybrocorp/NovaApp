@@ -27,6 +27,21 @@ class SupabaseService {
     );
   }
 
+  Future<String?> getRemotePublicKey(String userId) async {
+    final response = await client.from('profiles').select('public_key').eq('id', userId).single();
+    return response['public_key'] as String?;
+  }
+
+  Future<void> updatePublicKey(String publicKey) async {
+    final user = currentUser;
+    if (user != null) {
+      await client.from('profiles').upsert({
+        'id': user.id,
+        'public_key': publicKey,
+      });
+    }
+  }
+
   User? get currentUser => client.auth.currentUser;
 }
 

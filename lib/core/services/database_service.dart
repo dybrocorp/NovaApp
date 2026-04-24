@@ -16,7 +16,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -33,6 +33,13 @@ class DatabaseService {
             await db.execute('ALTER TABLE messages ADD COLUMN status TEXT DEFAULT "sent"');
           } catch (e) {
             // Columns might already exist
+          }
+        }
+        if (oldVersion < 4) {
+          try {
+            await db.execute('ALTER TABLE contacts ADD COLUMN publicKey TEXT');
+          } catch (e) {
+            // Column might already exist
           }
         }
       },
