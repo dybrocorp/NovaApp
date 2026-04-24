@@ -1,39 +1,39 @@
 # NovaApp 🛡️✨
 
-**NovaApp** is a premium, high-fidelity messaging platform designed for security, elegance, and a seamless user experience. Heavily inspired by modern privacy standards like Signal, it combines a stunning "Purple & Black" aesthetic with robust real-time capabilities.
+**NovaApp** es una plataforma de mensajería premium de alta fidelidad diseñada para la seguridad, la elegancia y una experiencia de usuario impecable. Inspirada en estándares de privacidad modernos como Signal, combina una estética impactante "Purple & Black" con capacidades robustas en tiempo real.
 
-## 🚀 Key Features
+## 🚀 Funciones Clave
 
-- **Premium Chat Interface**: A refined, dark-mode messaging experience with high-fidelity UI components.
-- **Advanced Voice Messages**: Professional "Hold-to-Lock" recording with real-time waveform visualization.
-- **High-Fidelity Location Sharing**: Interactive dark-mode maps for precise and secure position sharing.
-- **Secure Identity**: End-to-end encrypted feel with self-destructing notes and private spaces.
-- **Smart Archive**: A clean dashboard architecture that only shows archived chats when necessary.
-- **Backend Foundation**: Scalable architecture powered by Supabase and PostgreSQL for real-time synchronization.
+- **Interfaz de Chat Premium**: Una experiencia de mensajería refinada en modo oscuro con componentes de interfaz de alta fidelidad.
+- **Mensajes de Voz Avanzados**: Grabación profesional con mecánica "Hold-to-Lock" (mantener para bloquear) y visualización de ondas en tiempo real.
+- **Compartir Ubicación Pro**: Mapas interactivos en modo oscuro para compartir tu posición de forma precisa y segura.
+- **Identidad Segura**: Sensación de cifrado de extremo a extremo con notas autodestructibles y espacios privados.
+- **Archivo Inteligente**: Una arquitectura de dashboard limpia que solo muestra los chats archivados cuando es necesario.
+- **Base de Backend**: Arquitectura escalable potenciada por Supabase y PostgreSQL para sincronización en tiempo real.
 
-## 🛠️ Tech Stack
+## 🛠️ Stack Tecnológico
 
-- **Framework**: [Flutter](https://flutter.dev/) (Cross-platform)
-- **State Management**: [Riverpod](https://riverpod.dev/)
-- **Backend**: [Supabase](https://supabase.com/) (Real-time DB, Auth, Storage)
-- **Maps**: [flutter_map](https://pub.dev/packages/flutter_map) & OpenStreetMap
-- **Local Storage**: [sqflite](https://pub.dev/packages/sqflite) (Database v3) & [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage)
-- **Media**: [flutter_sound](https://pub.dev/packages/flutter_sound) & Custom Waveform Painters
+- **Framework**: [Flutter](https://flutter.dev/) (Multiplataforma)
+- **Gestión de Estado**: [Riverpod](https://riverpod.dev/)
+- **Backend**: [Supabase](https://supabase.com/) (DB en tiempo real, Auth, Almacenamiento)
+- **Mapas**: [flutter_map](https://pub.dev/packages/flutter_map) y OpenStreetMap
+- **Almacenamiento Local**: [sqflite](https://pub.dev/packages/sqflite) (Base de datos v3) y [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage)
+- **Multimedia**: [flutter_sound](https://pub.dev/packages/flutter_sound) y Pintores de Ondas Personalizados
 
-## 🎨 Design Philosophy
+## 🎨 Filosofía de Diseño
 
-NovaApp prioritizes **visual excellence** and **intuitive micro-interactions**. Every transition, button, and gesture (like the "Lock" mechanics in voice recording) is crafted to feel premium and state-of-the-art.
-
----
-
-## ⚖️ Legal & Privacy
-
-For our detailed policies, please refer to:
-- [Terms and Conditions](LEGAL/TERMS.md)
-- [Privacy Policy](LEGAL/PRIVACY.md)
+NovaApp prioriza la **excelencia visual** y las **microinteracciones intuitivas**. Cada transición, botón y gesto (como la mecánica de bloqueo en la grabación de voz) está diseñado para sentirse premium y de vanguardia.
 
 ---
 
-## 👨‍💻 Developed by
+## ⚖️ Legal y Privacidad
+
+Para conocer nuestras políticas detalladas, consulta:
+- [Términos y Condiciones](LEGAL/TERMS.md)
+- [Política de Privacidad](LEGAL/PRIVACY.md)
+
+---
+
+## 👨‍💻 Desarrollado por
 **DybroCorp** 🚀
-Digital Excellence in Software Engineering.
+Excelencia Digital en Ingeniería de Software.
