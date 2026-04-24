@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/nova_theme.dart';
+import 'core/services/supabase_service.dart';
 import 'features/auth/presentation/onboarding_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SupabaseService.initialize();
   runApp(
     const ProviderScope(
       child: NovaApp(),

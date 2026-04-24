@@ -93,7 +93,7 @@ class AttachmentMenu extends StatelessWidget {
             title: const Text('Tiempo actual'),
             onTap: () {
               Navigator.pop(context);
-              onSelected('location_static', null);
+              onSelected('location', null);
             },
           ),
           ListTile(
