@@ -63,7 +63,7 @@ class AttachmentMenu extends StatelessWidget {
                 icon: Icons.location_on, 
                 color: Colors.cyan[400]!, 
                 label: 'Ubicación',
-                onTap: () => _showLocationOptions(context),
+                onTap: () => onSelected('location', null),
               ),
               _MenuItem(
                 icon: Icons.description, 
@@ -73,70 +73,6 @@ class AttachmentMenu extends StatelessWidget {
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showLocationOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: NovaColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.my_location, color: Colors.white),
-            title: const Text('Tiempo actual'),
-            onTap: () {
-              Navigator.pop(context);
-              onSelected('location', null);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.timelapse, color: Colors.white),
-            title: const Text('Tiempo real'),
-            onTap: () {
-              Navigator.pop(context);
-              _showDurationPicker(context);
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  void _showDurationPicker(BuildContext context) {
-    final durations = [
-      {'label': '15 min', 'value': 15},
-      {'label': '30 min', 'value': 30},
-      {'label': '1 hora', 'value': 60},
-      {'label': '8 horas', 'value': 480},
-      {'label': '20 horas', 'value': 1200},
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: NovaColors.surface,
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text('Compartir ubicación por...', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          ...durations.map((d) => ListTile(
-            title: Text(d['label'] as String),
-            onTap: () {
-              Navigator.pop(context);
-              onSelected('location_realtime', d['value']);
-            },
-          )),
-          const SizedBox(height: 16),
         ],
       ),
     );
