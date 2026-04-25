@@ -25,7 +25,7 @@ Usted tiene derecho a:
 NovaApp no vende, alquila ni comercia con sus datos personales con anunciantes o terceros con fines lucrativos.
 
 ## 6. Contacto
-Para cualquier duda sobre su privacidad, puede contactar con nuestro equipo de soporte directamente a través del chat de **Soporte NovaApp** dentro de la aplicación.
+Para cualquier duda sobre su privacidad, puede contactar con nuestro equipo de soporte directamente a través del canal de **Soporte NovaApp** dentro de la aplicación.
 
 ---
 **NovaApp: Privacidad por diseño.**

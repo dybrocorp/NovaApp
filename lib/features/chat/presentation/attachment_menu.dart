@@ -31,45 +31,58 @@ class AttachmentMenu extends StatelessWidget {
           const SizedBox(height: 32),
           GridView.count(
             shrinkWrap: true,
-            crossAxisCount: 3,
-            mainAxisSpacing: 24,
-            crossAxisSpacing: 24,
+            crossAxisCount: 4,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 12,
+            childAspectRatio: 0.85,
             children: [
               _MenuItem(
-                icon: Icons.camera_alt, 
-                color: Colors.pink[400]!, 
-                label: 'Cámara',
-                onTap: () => onSelected('camera', null),
-              ),
-              _MenuItem(
-                icon: Icons.mic, 
-                color: Colors.blue[400]!, 
-                label: 'Grabar',
-                onTap: () => onSelected('record', null),
-              ),
-              _MenuItem(
-                icon: Icons.person, 
-                color: Colors.indigo[400]!, 
-                label: 'Contacto',
-                onTap: () => onSelected('contact', null),
-              ),
-              _MenuItem(
                 icon: Icons.image, 
-                color: Colors.orange[400]!, 
+                color: const Color(0xFF9B51E0), 
                 label: 'Galería',
                 onTap: () => onSelected('gallery', null),
               ),
               _MenuItem(
+                icon: Icons.camera_alt, 
+                color: const Color(0xFFEB5757), 
+                label: 'Cámara',
+                onTap: () => onSelected('camera', null),
+              ),
+              _MenuItem(
+                icon: Icons.person, 
+                color: const Color(0xFF2F80ED), 
+                label: 'Contacto',
+                onTap: () => onSelected('contact', null),
+              ),
+              _MenuItem(
                 icon: Icons.location_on, 
-                color: Colors.cyan[400]!, 
+                color: const Color(0xFF27AE60), 
                 label: 'Ubicación',
                 onTap: () => onSelected('location', null),
               ),
               _MenuItem(
                 icon: Icons.description, 
-                color: Colors.green[400]!, 
-                label: 'Documento',
+                color: const Color(0xFFF2994A), 
+                label: 'Archivo',
                 onTap: () => onSelected('document', null),
+              ),
+              _MenuItem(
+                icon: Icons.poll, 
+                color: const Color(0xFF56CCF2), 
+                label: 'Encuesta',
+                onTap: () => onSelected('poll', null),
+              ),
+              _MenuItem(
+                icon: Icons.share_location, 
+                color: const Color(0xFFF2C94C), 
+                label: 'Tiempo Real',
+                onTap: () => onSelected('location_realtime', 15),
+              ),
+              _MenuItem(
+                icon: Icons.more_horiz, 
+                color: const Color(0xFF4F4F4F), 
+                label: 'Más',
+                onTap: () {},
               ),
             ],
           ),
@@ -89,33 +102,30 @@ class _MenuItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.8),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
             ),
-            child: Icon(icon, color: Colors.white, size: 28),
+            child: Icon(icon, color: color, size: 26),
           ),
           const SizedBox(height: 8),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: const TextStyle(
-              color: NovaColors.textPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w400,
             ),
           ),
         ],

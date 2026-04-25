@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:novaapp/core/theme/nova_colors.dart';
 import 'package:novaapp/shared/widgets/chat_bubble.dart';
 import 'package:novaapp/features/chat/domain/models.dart';
 import 'package:novaapp/features/chat/presentation/call_screen.dart';
@@ -11,6 +10,8 @@ import 'package:novaapp/core/services/attachment_service.dart';
 import 'package:novaapp/shared/widgets/waveform_painter.dart';
 import 'package:novaapp/features/chat/presentation/location_picker_screen.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:novaapp/features/chat/presentation/contact_detail_screen.dart';
+import 'package:novaapp/features/chat/presentation/group_info_screen.dart';
 import 'dart:math' as math;
 
 final attachmentServiceProvider = Provider((ref) => AttachmentService());
@@ -144,6 +145,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         case 'contact':
           text = await service.pickContact();
+          msgType = MessageType.contact;
           break;
         case 'location':
           final LatLng? result = await Navigator.push(
@@ -151,16 +153,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             MaterialPageRoute(builder: (context) => const LocationPickerScreen()),
           );
           if (result != null) {
-            text = '📍 Ubicación: https://www.google.com/maps?q=${result.latitude},${result.longitude}';
+            text = 'Lugar compartido';
+            path = '${result.latitude},${result.longitude}'; // Latitude, Longitude for map preview logic
+            msgType = MessageType.location;
           }
           break;
+        case 'poll':
+          // Mock poll data for demonstration
+          msgType = MessageType.poll;
+          final pollData = PollData(
+            question: '¿Cuál es tu color favorito de NovaApp?',
+            options: ['Púrpura Profundo', 'Negro Obsidiana', 'Gris Espacial'],
+            votes: {0: 12, 1: 8, 2: 5},
+          );
+          final message = Message(
+            senderId: 'me',
+            chatId: widget.contact.id,
+            type: msgType,
+            timestamp: DateTime.now(),
+            isMe: true,
+            pollData: pollData,
+          );
+          await ref.read(chatRepositoryProvider).saveMessage(message);
+          return;
         case 'location_realtime':
           final duration = data as int;
-          text = '📡 Ubicación en tiempo real iniciada ($duration min)\nVer mapa: ...';
+          text = 'Ubicación en tiempo real ($duration min)';
+          msgType = MessageType.location;
           break;
         case 'document':
           path = await service.pickFile();
-          text = '📄 Archivo adjunto';
+          text = 'Documento compartido';
+          msgType = MessageType.text; // Defaulting to text with file label for now or a custom file type if needed
           break;
       }
 
@@ -214,52 +238,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final messagesAsync = ref.watch(messagesProvider(widget.contact.id));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: NovaColors.background,
+      backgroundColor: isDark ? Colors.black : Colors.white,
       body: Stack(
         children: [
           Column(
             children: [
               _buildHeader(context),
               Expanded(
-                child: Container(
-                  decoration: const BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage('assets/chat_bg.png'),
-                      fit: BoxFit.cover,
-                      opacity: 0.15,
-                    ),
+                child: messagesAsync.when(
+                  data: (messages) => ListView.builder(
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
+                    itemCount: messages.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == messages.length) {
+                        return _buildInitialProfileCard(context);
+                      }
+                      final message = messages[index];
+                      return ChatBubble(message: message);
+                    },
                   ),
-                  child: messagesAsync.when(
-                    data: (messages) => ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      itemCount: messages.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == messages.length) {
-                          return _buildInitialProfileCard();
-                        }
-                        final message = messages[index];
-                        return ChatBubble(message: message);
-                      },
-                    ),
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (e, s) => Center(child: Text('Error: $e')),
-                  ),
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, s) => Center(child: Text('Error: $e')),
                 ),
               ),
               _buildInputArea(context),
             ],
           ),
-          if (_isRecording) _buildRecordingOverlay(),
+          if (_isRecording) _buildRecordingOverlay(context),
         ],
       ),
     );
   }
 
-  Widget _buildInitialProfileCard() {
+  Widget _buildInitialProfileCard(BuildContext context) {
     final isPrivateNotes = widget.contact.name == 'Notas privadas';
+    final colorScheme = Theme.of(context).colorScheme;
     
     return Padding(
       padding: const EdgeInsets.all(24.0),
@@ -267,10 +284,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         children: [
           CircleAvatar(
             radius: 50,
-            backgroundColor: isPrivateNotes ? const Color(0xFFE6D7BD) : const Color(0xFF2C2C2E),
+            backgroundColor: isPrivateNotes ? const Color(0xFFE6D7BD) : colorScheme.surface,
             child: isPrivateNotes 
               ? const Icon(Icons.description_outlined, color: Color(0xFF5D4037), size: 50)
-              : Text(widget.contact.name[0], style: const TextStyle(fontSize: 40, color: Colors.white)),
+              : Text(widget.contact.name[0], style: TextStyle(fontSize: 40, color: colorScheme.onSurface)),
           ),
           const SizedBox(height: 16),
           Row(
@@ -278,7 +295,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             children: [
               Text(
                 widget.contact.name,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colorScheme.onSurface),
               ),
               if (isPrivateNotes) ...[
                 const SizedBox(width: 8),
@@ -290,9 +307,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E),
+              color: colorScheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: colorScheme.onSurface.withValues(alpha: 0.1)),
             ),
             child: Column(
               children: [
@@ -329,75 +346,102 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8, bottom: 12),
-      decoration: const BoxDecoration(
-        color: NovaColors.background,
-        border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A), width: 1)),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black : Colors.white,
+        border: Border(bottom: BorderSide(color: colorScheme.onSurface.withValues(alpha: 0.1), width: 1)),
       ),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.white),
+            icon: Icon(Icons.arrow_back_ios_new, size: 20, color: colorScheme.primary),
             onPressed: () => Navigator.pop(context),
           ),
           CircleAvatar(
             radius: 18,
-            backgroundColor: widget.contact.name == 'Notas privadas' ? const Color(0xFFE6D7BD) : NovaColors.primary,
+            backgroundColor: widget.contact.name == 'Notas privadas' ? const Color(0xFFE6D7BD) : colorScheme.surface,
             child: widget.contact.name == 'Notas privadas'
               ? const Icon(Icons.description_outlined, color: Color(0xFF5D4037), size: 18)
               : Text(
                   widget.contact.name[0],
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: colorScheme.onSurface, fontWeight: FontWeight.bold),
                 ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      widget.contact.name,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            child: GestureDetector(
+              onTap: () {
+                if (widget.contact.name.contains('Grupo')) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GroupInfoScreen(
+                        group: ChatGroup(
+                          id: widget.contact.id,
+                          name: widget.contact.name,
+                          memberIds: ['me', 'user2', 'user3'],
+                        ),
+                      ),
                     ),
-                    if (widget.contact.name == 'Notas privadas') ...[
-                      const SizedBox(width: 4),
-                      const Icon(Icons.verified, color: Colors.blue, size: 16),
+                  );
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => ContactDetailScreen(contact: widget.contact)),
+                  );
+                }
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          widget.contact.name,
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildVerificationDots(widget.contact.verificationLevel),
                     ],
-                  ],
-                ),
-                const Text(
-                  'en línea',
-                  style: TextStyle(fontSize: 12, color: NovaColors.primaryLight),
-                ),
-              ],
+                  ),
+                  Text(
+                    'en línea',
+                    style: TextStyle(fontSize: 12, color: colorScheme.primary, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.videocam_outlined, color: Colors.white),
+            icon: Icon(Icons.videocam_outlined, color: colorScheme.onSurface.withValues(alpha: 0.7)),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => CallScreen(contactName: widget.contact.name, isVideo: true)),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.call_outlined, color: Colors.white),
+            icon: Icon(Icons.call_outlined, color: colorScheme.onSurface.withValues(alpha: 0.7)),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => CallScreen(contactName: widget.contact.name)),
             ),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            color: const Color(0xFF2C2C2E),
+            icon: Icon(Icons.more_vert, color: colorScheme.onSurface.withValues(alpha: 0.7)),
+            color: colorScheme.surface,
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'archivos', child: Text('Todos los archivos')),
-              const PopupMenuItem(value: 'ajustes', child: Text('Ajustes del chat')),
-              const PopupMenuItem(value: 'buscar', child: Text('Buscar')),
-              const PopupMenuItem(value: 'inicio', child: Text('Añadir a la pantalla de inicio')),
-              const PopupMenuItem(value: 'silenciar', child: Text('Silenciar notificaciones')),
+              PopupMenuItem(value: 'archivos', child: Text('Todos los archivos', style: TextStyle(color: colorScheme.onSurface))),
+              PopupMenuItem(value: 'ajustes', child: Text('Ajustes del chat', style: TextStyle(color: colorScheme.onSurface))),
+              PopupMenuItem(value: 'buscar', child: Text('Buscar', style: TextStyle(color: colorScheme.onSurface))),
+              PopupMenuItem(value: 'inicio', child: Text('Añadir a la pantalla de inicio', style: TextStyle(color: colorScheme.onSurface))),
+              PopupMenuItem(value: 'silenciar', child: Text('Silenciar notificaciones', style: TextStyle(color: colorScheme.onSurface))),
             ],
           ),
         ],
@@ -405,13 +449,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Widget _buildRecordingOverlay() {
+  Widget _buildRecordingOverlay(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Positioned(
       bottom: 0,
       left: 0,
       right: 0,
       child: Container(
-        color: NovaColors.background,
+        color: isDark ? Colors.black : Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
@@ -421,22 +468,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _recordingStartTime != null 
                   ? '${DateTime.now().difference(_recordingStartTime!).inMinutes.toString().padLeft(2, '0')}:${(DateTime.now().difference(_recordingStartTime!).inSeconds % 60).toString().padLeft(2, '0')}'
                   : '00:00',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(color: colorScheme.onSurface, fontWeight: FontWeight.bold),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: SizedBox(
                 height: 40,
                 child: CustomPaint(
-                  painter: WaveformPainter(amplitudes: _amplitudes, color: NovaColors.primary),
+                  painter: WaveformPainter(amplitudes: _amplitudes, color: colorScheme.primary),
                 ),
               ),
             ),
             if (!_isLocked)
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.chevron_left, color: Colors.grey),
-                  Text(' Desliza para cancelar', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  Icon(Icons.chevron_left, color: colorScheme.onSurface.withValues(alpha: 0.3)),
+                  Text(' Desliza para cancelar', style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 12)),
                 ],
               ),
             if (_isLocked)
@@ -455,63 +502,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return const SizedBox(height: 80); // Placeholder for overlay
     }
 
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: const BoxDecoration(
-        color: NovaColors.background,
-        border: Border(top: BorderSide(color: Color(0xFF1A1A1A))),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black : Colors.white,
+        border: Border(top: BorderSide(color: colorScheme.onSurface.withValues(alpha: 0.05))),
       ),
       child: SafeArea(
         top: false,
         child: Row(
           children: [
-            if (!_isLocked)
-              Container(
-                decoration: BoxDecoration(
-                  color: NovaColors.surface,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFF2C2C2C)),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.sentiment_satisfied_alt, color: NovaColors.textTertiary),
-                  onPressed: () {},
-                ),
-              ),
-            const SizedBox(width: 4),
+            // Left Attachment Menu Button (+)
+            IconButton(
+              icon: Icon(Icons.add, color: colorScheme.primary, size: 28),
+              onPressed: _showAttachmentMenu,
+            ),
+            
+            // Center Text Field
             Expanded(
               child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
-                  color: NovaColors.surface,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFF2C2C2C)),
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        onChanged: (val) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'Mensaje de Signal',
-                          hintStyle: TextStyle(color: Colors.grey),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.camera_alt_outlined, color: NovaColors.textTertiary),
-                      onPressed: () => _handleAttachmentSelected('camera', null),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.attach_file, color: NovaColors.textTertiary),
-                      onPressed: _showAttachmentMenu,
-                    ),
-                  ],
+                child: TextField(
+                  controller: _controller,
+                  onChanged: (val) => setState(() {}),
+                  style: TextStyle(color: colorScheme.onSurface, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: 'Mensaje de NovaApp',
+                    hintStyle: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.3)),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
                 ),
               ),
             ),
+            
             const SizedBox(width: 8),
+            
+            // Right Mic/Send Button
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -520,7 +554,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     top: _dragUpPosition - 60,
                     left: 0,
                     right: 0,
-                    child: const Icon(Icons.lock_outline, color: Colors.white70),
+                    child: Icon(Icons.lock_outline, color: colorScheme.onSurface.withValues(alpha: 0.5)),
                   ),
                 GestureDetector(
                   onLongPressStart: _onLongPressStart,
@@ -537,7 +571,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: _isRecording ? Colors.red : NovaColors.primary,
+                      color: _isRecording ? Colors.red : colorScheme.primary,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -554,6 +588,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildVerificationDots(VerificationLevel level) {
+    int count = 1;
+    Color color = Colors.red;
+    
+    if (level == VerificationLevel.level2) {
+      count = 2;
+      color = Colors.orange;
+    } else if (level == VerificationLevel.level3) {
+      count = 3;
+      color = Colors.green;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(count, (index) => Container(
+        width: 6,
+        height: 6,
+        margin: const EdgeInsets.only(right: 2),
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+        ),
+      )),
     );
   }
 }

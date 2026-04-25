@@ -102,7 +102,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
             ),
             ListTile(
               title: const Text('Cualquiera', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Todo el que tenga tu número podrá verte.', style: TextStyle(color: NovaColors.textTertiary)),
+              subtitle: const Text('Todo el que tenga tu ID de Nova podrá agregarte.', style: TextStyle(color: NovaColors.textTertiary)),
               trailing: _privacyOption == 'Cualquiera' ? const Icon(Icons.check, color: NovaColors.primary) : null,
               onTap: () {
                 setState(() => _privacyOption = 'Cualquiera');
@@ -110,11 +110,11 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
               },
             ),
             ListTile(
-              title: const Text('Nadie', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('No aparecerás en los resultados de búsqueda por número.', style: TextStyle(color: NovaColors.textTertiary)),
-              trailing: _privacyOption == 'Nadie' ? const Icon(Icons.check, color: NovaColors.primary) : null,
+              title: const Text('Solo por QR', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Solo podrán agregarte escaneando tu código QR.', style: TextStyle(color: NovaColors.textTertiary)),
+              trailing: _privacyOption == 'Solo por QR' ? const Icon(Icons.check, color: NovaColors.primary) : null,
               onTap: () {
-                setState(() => _privacyOption = 'Nadie');
+                setState(() => _privacyOption = 'Solo por QR');
                 Navigator.pop(context);
               },
             ),
@@ -208,7 +208,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            '¿Quién puede encontrarme con mi número?',
+                            '¿Quién puede encontrarme con mi ID?',
                             style: TextStyle(color: Colors.white, fontSize: 15),
                           ),
                           Text(

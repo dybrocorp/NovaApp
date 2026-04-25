@@ -119,17 +119,49 @@ class NewMessageScreen extends ConsumerWidget {
   Widget _buildContactTile(BuildContext context, ChatContact contact) {
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: NovaColors.primary,
+        backgroundColor: const Color(0xFF2C2C2E),
         child: Text(contact.name[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       title: Row(
         children: [
-          Text(contact.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          const SizedBox(width: 4),
-          const Icon(Icons.person_outline, size: 14, color: Colors.grey),
+          Expanded(
+            child: Text(
+              contact.name, 
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _buildVerificationDots(contact.verificationLevel),
         ],
       ),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ChatScreen(contact: contact))),
+    );
+  }
+
+  Widget _buildVerificationDots(VerificationLevel level) {
+    int count = 1;
+    Color color = Colors.red;
+    
+    if (level == VerificationLevel.level2) {
+      count = 2;
+      color = Colors.orange;
+    } else if (level == VerificationLevel.level3) {
+      count = 3;
+      color = Colors.green;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(count, (index) => Container(
+        width: 6,
+        height: 6,
+        margin: const EdgeInsets.only(right: 2),
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+        ),
+      )),
     );
   }
 

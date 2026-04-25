@@ -1,6 +1,6 @@
 # NovaApp 🛡️✨
 
-**NovaApp** es una plataforma de mensajería premium de alta fidelidad diseñada para la seguridad, la elegancia y una experiencia de usuario impecable. Inspirada en estándares de privacidad modernos como Signal, combina una estética impactante "Purple & Black" con capacidades robustas en tiempo real.
+**NovaApp** es una plataforma de mensajería premium de alta fidelidad diseñada para la seguridad, la elegancia y una experiencia de usuario impecable. Con una arquitectura centrada en la privacidad, combina una estética impactante "Purple & Black" con capacidades robustas en tiempo real.
 
 ## 🚀 Funciones Clave
 

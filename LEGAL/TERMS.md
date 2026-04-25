@@ -22,7 +22,7 @@ Todos los derechos de diseño, código fuente, logotipos y marcas relacionadas c
 NovaApp se proporciona "tal cual" y "según disponibilidad". DybroCorp no garantiza que el servicio sea ininterrumpido o libre de errores, aunque trabajamos constantemente para mantener la máxima estabilidad.
 
 ## 6. Modificaciones
-DybroCorp se reserva el derecho de modificar estos términos en cualquier momento. La continuación del uso de la app tras dichos cambios constituye la aceptación de los mismos.
+DybroCorp se reserva el derecho de modificar estos términos en cualquier momento. La continuación del uso de NovaApp tras dichos cambios constituye la aceptación de los mismos.
 
 ---
 © 2026 **DybroCorp**. Todos los derechos reservados.

@@ -5,7 +5,7 @@ class IdentityRepository {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   static const String _idKey = 'nova_id';
   static const String _nameKey = 'user_name';
-  static const String _phoneKey = 'user_phone';
+
   static const String _avatarKey = 'user_avatar';
 
   Future<String?> getId() async {
@@ -21,6 +21,10 @@ class IdentityRepository {
     return newId;
   }
 
+  Future<void> restoreIdentity(String id) async {
+    await _storage.write(key: _idKey, value: id);
+  }
+
   Future<void> saveName(String name) async {
     await _storage.write(key: _nameKey, value: name);
   }
@@ -29,19 +33,16 @@ class IdentityRepository {
     return await _storage.read(key: _nameKey);
   }
 
-  Future<void> savePhone(String phone) async {
-    await _storage.write(key: _phoneKey, value: phone);
-  }
-
-  Future<String?> getPhone() async {
-    return await _storage.read(key: _phoneKey);
-  }
-
   Future<void> saveAvatarPath(String path) async {
     await _storage.write(key: _avatarKey, value: path);
   }
 
   Future<String?> getAvatarPath() async {
     return await _storage.read(key: _avatarKey);
+  }
+
+  /// Permanently deletes ALL user data from secure storage.
+  Future<void> deleteAllData() async {
+    await _storage.deleteAll();
   }
 }

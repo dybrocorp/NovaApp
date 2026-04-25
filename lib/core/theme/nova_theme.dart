@@ -8,58 +8,60 @@ class NovaTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       primaryColor: NovaColors.primary,
-      scaffoldBackgroundColor: NovaColors.background,
-      colorScheme: ColorScheme.dark(
+      scaffoldBackgroundColor: Colors.black,
+      colorScheme: const ColorScheme.dark(
         primary: NovaColors.primary,
         secondary: NovaColors.primaryLight,
-        surface: NovaColors.surface,
-        surfaceContainer: NovaColors.background,
+        surface: Color(0xFF121212),
         error: NovaColors.error,
         onPrimary: Colors.white,
-        onSurface: NovaColors.textPrimary,
       ),
-      textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme).copyWith(
-        displayLarge: GoogleFonts.outfit(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: NovaColors.textPrimary,
-        ),
-        bodyLarge: GoogleFonts.outfit(
-          fontSize: 16,
-          color: NovaColors.textPrimary,
-        ),
-        bodyMedium: GoogleFonts.outfit(
-          fontSize: 14,
-          color: NovaColors.textSecondary,
-        ),
-      ),
+      textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
       appBarTheme: const AppBarTheme(
-        backgroundColor: NovaColors.background,
+        backgroundColor: Colors.black,
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: NovaColors.textPrimary,
-        ),
+        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: NovaColors.primary,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 56),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          textStyle: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: NovaColors.primary,
-        foregroundColor: Colors.white,
+    );
+  }
+
+  static ThemeData get lightTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      primaryColor: NovaColors.primary,
+      scaffoldBackgroundColor: Colors.white,
+      colorScheme: const ColorScheme.light(
+        primary: NovaColors.primary,
+        secondary: NovaColors.primaryDark,
+        surface: Color(0xFFF2F2F7),
+        error: Colors.redAccent,
+        onPrimary: Colors.white,
+      ),
+      textTheme: GoogleFonts.outfitTextTheme(ThemeData.light().textTheme),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+        iconTheme: IconThemeData(color: NovaColors.primary),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: NovaColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 56),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
       ),
     );
   }
