@@ -4,10 +4,10 @@
 
 En **NovaApp**, la privacidad no es una opción, es nuestra base. Esta política describe cómo manejamos su información en la infraestructura de **DybroCorp**.
 
-## 1. Recopilación de Información
-- **Identidad**: Recopilamos su número de teléfono únicamente para la creación de la cuenta y verificación vía OTP.
-- **Mensajes**: Los mensajes se transmiten de forma segura. Si el cifrado de extremo a extremo está activo, ni siquiera nosotros podemos leer su contenido.
-- **Metadatos**: Minimizamos la recopilación de metadatos de red para proteger su identidad.
+## 1. Anonimato por Diseño
+- **Identidad**: NovaApp NO recopila su número de teléfono, correo electrónico ni ninguna información personal identificable. Su **Nova ID** se genera localmente en su dispositivo mediante criptografía asimétrica.
+- **Mensajes**: Todos los mensajes están cifrados de extremo a extremo (E2EE) de forma obligatoria. DybroCorp no posee las claves privadas de los usuarios y no puede acceder al contenido de las comunicaciones.
+- **Metadatos**: Minimizamos y eliminamos los metadatos de red para evitar el rastreo de patrones de comunicación.
 
 ## 2. Uso de Datos de Ubicación
 Cuando utiliza la función de mapa en NovaApp, su ubicación se procesa localmente y solo se comparte con el destinatario que usted elija. No rastreamos su ubicación en segundo plano sin su consentimiento explícito.

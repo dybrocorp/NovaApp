@@ -4,12 +4,13 @@
 
 ## 🚀 Funciones Clave
 
-- **Interfaz de Chat Premium**: Una experiencia de mensajería refinada en modo oscuro con componentes de interfaz de alta fidelidad.
-- **Mensajes de Voz Avanzados**: Grabación profesional con mecánica "Hold-to-Lock" (mantener para bloquear) y visualización de ondas en tiempo real.
-- **Compartir Ubicación Pro**: Mapas interactivos en modo oscuro para compartir tu posición de forma precisa y segura.
-- **Identidad Segura**: Sensación de cifrado de extremo a extremo con notas autodestructibles y espacios privados.
-- **Archivo Inteligente**: Una arquitectura de dashboard limpia que solo muestra los chats archivados cuando es necesario.
-- **Base de Backend**: Arquitectura escalable potenciada por Supabase y PostgreSQL para sincronización en tiempo real.
+- **Identidad Anónima (Nova ID)**: Generación local de identidades basada en entropía. Sin correos, sin números de teléfono, 100% privado.
+- **Seguridad de Vanguardia**: Bloqueo mediante patrón de 9 puntos y desbloqueo biométrico instantáneo (Face/Fingerprint).
+- **Cifrado E2EE Total**: Arquitectura X25519 y Chacha20-Poly1305 para mensajes y archivos.
+- **Programación DND (No Molestar)**: Políticas de horario personalizables para silenciar notificaciones automáticamente.
+- **Mensajes de Voz Premium**: Grabación profesional con visualización de ondas y mecánica "Hold-to-Lock".
+- **Backup no-custodial**: Sistema de respaldo de ID local para recuperación de identidad sin servidores centrales.
+- **Backend de Sincronización**: Potenciado por Supabase para persistencia cifrada en tiempo real.
 
 ## 🛠️ Stack Tecnológico
 

@@ -10,10 +10,10 @@ Al descargar e instalar NovaApp, usted declara que es mayor de edad y que acepta
 ## 2. Descripción del Servicio
 NovaApp es una plataforma de mensajería cifrada. DybroCorp proporciona las herramientas técnicas, pero no se hace responsable del contenido transmitido por los usuarios.
 
-## 3. Uso Permitido
-- El usuario se compromete a no utilizar NovaApp para actividades ilícitas.
-- Queda prohibido el uso de la plataforma para spam, acoso o distribución de contenido malicioso.
-- El usuario es el único responsable de la seguridad de su cuenta y códigos de acceso.
+## 3. Uso Permitido y Responsabilidad
+- **Identidad No-Custodial**: El usuario es el único responsable de salvaguardar su **Nova ID** y su backup. DybroCorp no puede recuperar identidades perdidas debido al diseño de seguridad de la plataforma.
+- **Seguridad del Dispositivo**: El usuario es responsable de configurar y recordar su patrón de 9 puntos. En caso de olvido, la recuperación requiere el uso del backup de identidad.
+- **Conducta**: Queda prohibido el uso de NovaApp para actividades ilícitas, spam o distribución de código malicioso.
 
 ## 4. Propiedad Intelectual
 Todos los derechos de diseño, código fuente, logotipos y marcas relacionadas con NovaApp son propiedad exclusiva de **DybroCorp**. Queda prohibida la ingeniería inversa o redistribución no autorizada.
