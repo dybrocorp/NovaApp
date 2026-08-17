@@ -8,14 +8,7 @@ class IdentityUtils {
   /// Includes timestamp-based seed + secure random for guaranteed uniqueness.
   static String generateId() {
     final Random random = Random.secure();
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-    // Mix timestamp bits into the random generation for extra uniqueness
-    final seed = Random(timestamp);
-    final chars = List.generate(8, (index) {
-      // Alternate between secure random and timestamp-seeded random
-      final r = index.isEven ? random : seed;
-      return _chars[r.nextInt(_chars.length)];
-    }).join();
+    final chars = List.generate(8, (_) => _chars[random.nextInt(_chars.length)]).join();
     return 'NOVA-$chars';
   }
 }

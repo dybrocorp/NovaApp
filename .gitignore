@@ -43,3 +43,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment variables (security)
+.env
+
+# Build artifacts
+*.apk
+NovaApp.apk
+
+# Firebase config (contains API keys)
+android/app/google-services.json

@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/core/services/supabase_service.dart';
+import 'package:novaapp/core/services/logger_service.dart';
 import 'package:novaapp/features/auth/presentation/auth_providers.dart';
 import 'package:novaapp/features/profile/presentation/profile_screen.dart';
 import 'package:novaapp/features/settings/presentation/app_lock_settings_screen.dart';
@@ -13,6 +16,8 @@ import 'package:novaapp/features/settings/presentation/chat_settings_screen.dart
 import 'package:novaapp/features/settings/presentation/help_screen.dart';
 import 'package:novaapp/features/settings/presentation/about_screen.dart';
 import 'package:novaapp/features/settings/presentation/donation_screen.dart';
+import 'package:novaapp/features/settings/presentation/blocked_contacts_screen.dart';
+import 'package:novaapp/features/chat/presentation/scanner_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -29,6 +34,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final repo = ref.read(identityRepositoryProvider);
       await repo.saveAvatarPath(pickedFile.path);
       ref.invalidate(avatarProvider);
+      
+      // Sync with Supabase
+      try {
+        final supabaseService = ref.read(supabaseServiceProvider);
+        final novaId = await repo.getId();
+        final name = await repo.getName();
+        if (novaId != null && name != null) {
+          final bytes = await pickedFile.readAsBytes();
+          final base64Avatar = base64Encode(bytes);
+          await supabaseService.createOrUpdateProfile(novaId, name, avatarBase64: base64Avatar);
+        }
+      } catch (e) {
+        LoggerService.error('Error syncing avatar to Supabase', error: e, tag: 'Profile');
+      }
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Foto de perfil actualizada')),
@@ -96,11 +116,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (newName.isNotEmpty) {
                 await ref.read(identityRepositoryProvider).saveName(newName);
                 ref.invalidate(nameProvider);
+                
+                // Sync with Supabase
+                try {
+                  final supabaseService = ref.read(supabaseServiceProvider);
+                  final novaId = await ref.read(identityRepositoryProvider).getId();
+                  if (novaId != null) {
+                    await supabaseService.createOrUpdateProfile(novaId, newName);
+                  }
+                } catch (e) {
+                  LoggerService.error('Error syncing name to Supabase', error: e, tag: 'Profile');
+                }
+                
                 if (!context.mounted) return;
                 Navigator.pop(context);
               }
             },
             child: const Text('GUARDAR', style: TextStyle(color: NovaColors.primary, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTwoFactorAuthDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: NovaColors.surface,
+        title: const Text('Verificación en dos pasos', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'La verificación en dos pasos añade una capa adicional de seguridad a tu cuenta. Cuando actives esta función, necesitarás ingresar un código adicional al iniciar sesión.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCELAR', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Función de verificación en dos pasos próximamente')),
+              );
+            },
+            child: const Text('ACTIVAR', style: TextStyle(color: NovaColors.primary, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -180,9 +241,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             Icon(Icons.edit, size: 16, color: colorScheme.onSurface.withValues(alpha: 0.3)),
                           ],
                         ),
-                        Text(
-                          identityAsync.value ?? 'NOVA ID',
-                          style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 13),
+                        identityAsync.when(
+                          data: (id) => Text(
+                            id ?? 'NOVA ID',
+                            style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 13),
+                          ),
+                          loading: () => const Text(
+                            'Cargando...',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          error: (_, __) => Text(
+                            'Error al cargar ID',
+                            style: TextStyle(color: Colors.red, fontSize: 13),
+                          ),
                         ),
                       ],
                     ),
@@ -202,15 +273,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _buildMenuItem(context, Icons.person_outline, 'Ajustes de perfil', onTap: () {
             Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfileScreen()));
           }),
+          _buildMenuItem(context, Icons.verified_user, 'Verificación en dos pasos', onTap: () {
+            _showTwoFactorAuthDialog();
+          }),
           _buildMenuItem(context, Icons.qr_code_scanner, 'Escanear ID', onTap: () {
-            // Scanner navigation handled by scanner screen which is accessible from chats
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const ScannerScreen()));
           }),
 
           _buildCategoryHeader(context, 'PRIVACIDAD'),
           _buildMenuItem(context, Icons.security, 'Privacidad', onTap: () {
             Navigator.push(context, MaterialPageRoute(builder: (context) => const PrivacySettingsScreen()));
           }),
-          _buildMenuItem(context, Icons.block, 'Contactos bloqueados'),
+          _buildMenuItem(context, Icons.block, 'Contactos bloqueados', onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const BlockedContactsScreen()));
+          }),
 
           _buildCategoryHeader(context, 'APARIENCIA'),
           _buildMenuItem(context, Icons.brightness_medium_outlined, 'Diseño', onTap: () {

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter analyze 2>&1)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter --version)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter pub get 2>&1 | tail -50)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter pub get)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter analyze 2>&1 | head -100)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter analyze 2>&1 | Select-Object -First 100)",
+      "Bash(cd C:\\Users\\Dybro\\Documents\\NovaApp && flutter analyze)"
+    ]
+  }
+}

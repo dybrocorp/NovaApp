@@ -1,9 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
 import 'package:novaapp/features/chat/domain/models.dart';
 import 'package:novaapp/features/chat/presentation/media_viewer_screen.dart';
 import 'package:novaapp/features/settings/presentation/providers/settings_provider.dart';
+import 'package:novaapp/features/settings/data/models.dart';
+import 'package:novaapp/core/services/link_preview_service.dart';
+import 'package:novaapp/shared/widgets/link_preview_widget.dart';
 
 class ChatBubble extends ConsumerWidget {
   final Message message;
@@ -246,9 +250,28 @@ class ChatBubble extends ConsumerWidget {
   }
 
   Widget _buildTextContent() {
-    return Text(
-      message.text ?? '',
-      style: const TextStyle(color: Colors.white, fontSize: 16),
+    final text = message.text ?? '';
+    final urls = LinkPreviewService.extractUrls(text);
+    
+    if (urls.isEmpty) {
+      return Text(
+        text,
+        style: const TextStyle(color: Colors.white, fontSize: 16),
+      );
+    }
+
+    // Show text with link preview
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (text.replaceAll(RegExp(r'https?:\/\/[^\s]+'), '').trim().isNotEmpty)
+          Text(
+            text.replaceAll(RegExp(r'https?:\/\/[^\s]+'), '').trim(),
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+        const SizedBox(height: 8),
+        LinkPreviewWidget(url: urls.first),
+      ],
     );
   }
 
@@ -271,17 +294,29 @@ class ChatBubble extends ConsumerWidget {
             tag: message.mediaUrl ?? '',
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                message.mediaUrl ?? 'https://via.placeholder.com/200',
-                width: 250,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 250,
-                  height: 150,
-                  color: Colors.white10,
-                  child: const Icon(Icons.image_not_supported),
-                ),
-              ),
+              child: message.mediaUrl != null && message.mediaUrl!.startsWith('http')
+                ? Image.network(
+                    message.mediaUrl!,
+                    width: 250,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: 250,
+                      height: 150,
+                      color: Colors.white10,
+                      child: const Icon(Icons.image_not_supported),
+                    ),
+                  )
+                : Image.file(
+                    File(message.mediaUrl ?? ''),
+                    width: 250,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: 250,
+                      height: 150,
+                      color: Colors.white10,
+                      child: const Icon(Icons.image_not_supported),
+                    ),
+                  ),
             ),
           ),
         ),

@@ -27,9 +27,11 @@ class PollData {
 
   factory PollData.fromMap(Map<String, dynamic> map) {
     return PollData(
-      question: map['question'],
-      options: List<String>.from(map['options']),
-      votes: (map['votes'] as Map).map((k, v) => MapEntry(int.parse(k), v as int)),
+      question: map['question'] ?? '',
+      options: map['options'] != null ? List<String>.from(map['options']) : [],
+      votes: map['votes'] != null
+          ? (map['votes'] as Map).map((k, v) => MapEntry(int.parse(k.toString()), v as int))
+          : {},
       isClosed: map['isClosed'] == 1,
     );
   }
@@ -73,13 +75,25 @@ class Message {
   }
 
   factory Message.fromMap(Map<String, dynamic> map) {
+    DateTime parsedTimestamp;
+    try {
+      final ts = map['timestamp'];
+      if (ts is String && ts.isNotEmpty) {
+        parsedTimestamp = DateTime.parse(ts);
+      } else {
+        parsedTimestamp = DateTime.now();
+      }
+    } catch (_) {
+      parsedTimestamp = DateTime.now();
+    }
+
     return Message(
-      senderId: map['senderId'],
+      senderId: map['senderId'] ?? '',
       chatId: map['chatId'] ?? 'default_chat',
       text: map['text'],
       mediaUrl: map['mediaUrl'],
       type: MessageType.values.byName(map['type'] ?? 'text'),
-      timestamp: DateTime.parse(map['timestamp']),
+      timestamp: parsedTimestamp,
       isMe: map['isMe'] == 1,
       status: map['status'] ?? 'sent',
       pollData: map['pollData'] != null ? PollData.fromMap(map['pollData']) : null,

@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:novaapp/core/utils/identity_utils.dart';
+import 'package:novaapp/core/services/logger_service.dart';
 
 class IdentityRepository {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
@@ -9,7 +10,13 @@ class IdentityRepository {
   static const String _avatarKey = 'user_avatar';
 
   Future<String?> getId() async {
-    return await _storage.read(key: _idKey);
+    try {
+      return await _storage.read(key: _idKey);
+    } catch (e) {
+      LoggerService.error('Error reading ID, clearing corrupted data', error: e, tag: 'Identity');
+      await _storage.delete(key: _idKey);
+      return null;
+    }
   }
 
   Future<String> createIdentity() async {

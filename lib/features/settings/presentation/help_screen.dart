@@ -1,8 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/features/chat/presentation/chat_screen.dart';
+import 'package:novaapp/features/chat/domain/models.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key});
+
+  Future<void> _launchURL(String url) async {
+    final Uri uri = Uri.parse(url);
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        debugPrint('Could not launch $url');
+      }
+    } catch (e) {
+      debugPrint('Error launching URL: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,15 +36,28 @@ class HelpScreen extends StatelessWidget {
             context,
             Icons.mail_outline,
             'Soporte vía Email',
-            'support@novaapp.io',
-            () {},
+            'dybrocorp@gmail.com',
+            () => _launchURL('mailto:dybrocorp@gmail.com?subject=Soporte NovaApp'),
           ),
           _buildSupportChannel(
             context,
             Icons.chat_bubble_outline,
             'Canal de Ayuda (Nova ID)',
-            '*SUPPORT',
-            () {},
+            'NOVA-RU2QGHTQ',
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(
+                    contact: ChatContact(
+                      id: 'NOVA-RU2QGHTQ',
+                      name: 'Soporte NovaApp',
+                      verificationLevel: VerificationLevel.level3,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 32),
           _buildSectionTitle('DOCUMENTACIÓN LEGAL'),
@@ -55,7 +82,7 @@ class HelpScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   'Made with 💜 for Privacy',
-                  style: TextStyle(color: NovaColors.primary.withOpacity(0.5), fontSize: 10, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: NovaColors.primary.withValues(alpha: 0.5), fontSize: 10, fontWeight: FontWeight.bold),
                 ),
               ],
             ),

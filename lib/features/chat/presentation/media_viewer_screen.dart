@@ -39,12 +39,19 @@ class MediaViewerScreen extends StatelessWidget {
       body: Center(
         child: Hero(
           tag: mediaUrl,
-          child: PhotoView(
-            imageProvider: FileImage(File(mediaUrl)),
-            minScale: PhotoViewComputedScale.contained * 0.8,
-            maxScale: PhotoViewComputedScale.covered * 2,
-            backgroundDecoration: const BoxDecoration(color: Colors.black),
-          ),
+          child: mediaUrl.startsWith('http')
+            ? PhotoView(
+                imageProvider: NetworkImage(mediaUrl),
+                minScale: PhotoViewComputedScale.contained * 0.8,
+                maxScale: PhotoViewComputedScale.covered * 2,
+                backgroundDecoration: const BoxDecoration(color: Colors.black),
+              )
+            : PhotoView(
+                imageProvider: FileImage(File(mediaUrl)),
+                minScale: PhotoViewComputedScale.contained * 0.8,
+                maxScale: PhotoViewComputedScale.covered * 2,
+                backgroundDecoration: const BoxDecoration(color: Colors.black),
+              ),
         ),
       ),
     );

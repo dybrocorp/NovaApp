@@ -4,7 +4,7 @@ import 'package:novaapp/features/auth/data/identity_repository.dart';
 final identityRepositoryProvider = Provider((ref) => IdentityRepository());
 
 final identityProvider = FutureProvider<String?>((ref) async {
-  return await ref.watch(identityRepositoryProvider).createIdentity();
+  return await ref.watch(identityRepositoryProvider).getId();
 });
 
 final nameProvider = FutureProvider<String?>((ref) async {

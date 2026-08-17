@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/core/services/attachment_service.dart';
 
 class AttachmentMenu extends StatelessWidget {
   final Function(String type, dynamic data) onSelected;
@@ -82,7 +83,40 @@ class AttachmentMenu extends StatelessWidget {
                 icon: Icons.more_horiz, 
                 color: const Color(0xFF4F4F4F), 
                 label: 'Más',
-                onTap: () {},
+                onTap: () {
+                  Navigator.pop(context);
+                  // Show more options dialog
+                  showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      backgroundColor: NovaColors.surface,
+                      title: const Text('Más opciones', style: TextStyle(color: Colors.white)),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.photo_library, color: NovaColors.primary),
+                            title: const Text('Abrir Google Photos', style: TextStyle(color: Colors.white)),
+                            onTap: () async {
+                              Navigator.pop(context);
+                              final service = AttachmentService();
+                              await service.openGooglePhotos();
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.apps, color: NovaColors.primary),
+                            title: const Text('Abrir Galería del Sistema', style: TextStyle(color: Colors.white)),
+                            onTap: () async {
+                              Navigator.pop(context);
+                              final service = AttachmentService();
+                              await service.openGalleryApp();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),

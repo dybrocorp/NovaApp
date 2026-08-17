@@ -12,6 +12,7 @@ import 'package:novaapp/features/chat/presentation/location_picker_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:novaapp/features/chat/presentation/contact_detail_screen.dart';
 import 'package:novaapp/features/chat/presentation/group_info_screen.dart';
+import 'dart:io';
 import 'dart:math' as math;
 
 final attachmentServiceProvider = Provider((ref) => AttachmentService());
@@ -183,8 +184,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           break;
         case 'document':
           path = await service.pickFile();
-          text = 'Documento compartido';
-          msgType = MessageType.text; // Defaulting to text with file label for now or a custom file type if needed
+          text = path != null ? path.split(Platform.pathSeparator).last : 'Documento compartido';
+          msgType = MessageType.text;
           break;
       }
 
@@ -423,25 +424,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             icon: Icon(Icons.videocam_outlined, color: colorScheme.onSurface.withValues(alpha: 0.7)),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => CallScreen(contactName: widget.contact.name, isVideo: true)),
+              MaterialPageRoute(
+                builder: (context) => CallScreen(
+                  contactId: widget.contact.id,
+                  contactName: widget.contact.name,
+                  isVideo: true,
+                ),
+              ),
             ),
           ),
           IconButton(
             icon: Icon(Icons.call_outlined, color: colorScheme.onSurface.withValues(alpha: 0.7)),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => CallScreen(contactName: widget.contact.name)),
+              MaterialPageRoute(
+                builder: (context) => CallScreen(
+                  contactId: widget.contact.id,
+                  contactName: widget.contact.name,
+                  isVideo: false,
+                ),
+              ),
             ),
           ),
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: colorScheme.onSurface.withValues(alpha: 0.7)),
             color: colorScheme.surface,
+            position: PopupMenuPosition.under,
             itemBuilder: (context) => [
-              PopupMenuItem(value: 'archivos', child: Text('Todos los archivos', style: TextStyle(color: colorScheme.onSurface))),
-              PopupMenuItem(value: 'ajustes', child: Text('Ajustes del chat', style: TextStyle(color: colorScheme.onSurface))),
-              PopupMenuItem(value: 'buscar', child: Text('Buscar', style: TextStyle(color: colorScheme.onSurface))),
-              PopupMenuItem(value: 'inicio', child: Text('Añadir a la pantalla de inicio', style: TextStyle(color: colorScheme.onSurface))),
-              PopupMenuItem(value: 'silenciar', child: Text('Silenciar notificaciones', style: TextStyle(color: colorScheme.onSurface))),
+              PopupMenuItem(
+                value: 'archivos',
+                child: Text('Todos los archivos', style: TextStyle(color: colorScheme.onSurface)),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Función de archivos próximamente')),
+                  );
+                },
+              ),
+              PopupMenuItem(
+                value: 'ajustes',
+                child: Text('Ajustes del chat', style: TextStyle(color: colorScheme.onSurface)),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => ContactDetailScreen(contact: widget.contact)),
+                  );
+                },
+              ),
+              PopupMenuItem(
+                value: 'buscar',
+                child: Text('Buscar', style: TextStyle(color: colorScheme.onSurface)),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Función de búsqueda próximamente')),
+                  );
+                },
+              ),
+              PopupMenuItem(
+                value: 'inicio',
+                child: Text('Añadir a la pantalla de inicio', style: TextStyle(color: colorScheme.onSurface)),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Función de pantalla de inicio próximamente')),
+                  );
+                },
+              ),
+              PopupMenuItem(
+                value: 'silenciar',
+                child: Text('Silenciar notificaciones', style: TextStyle(color: colorScheme.onSurface)),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Función de silenciar próximamente')),
+                  );
+                },
+              ),
             ],
           ),
         ],

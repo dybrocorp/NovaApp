@@ -37,7 +37,7 @@ class NotificationsSettingsScreen extends ConsumerWidget {
               title: const Text('Sonido de notificación'),
               subtitle: Text('Predeterminado', style: TextStyle(color: colorScheme.primary, fontSize: 12)),
               trailing: const Icon(Icons.volume_up, size: 20),
-              onTap: () {},
+              onTap: () => _showSoundDialog(context, notifier),
             ),
           ],
           
@@ -120,6 +120,36 @@ class NotificationsSettingsScreen extends ConsumerWidget {
           letterSpacing: 1.2,
         ),
       ),
+    );
+  }
+
+  void _showSoundDialog(BuildContext context, SettingsNotifier notifier) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        title: const Text('Sonido de notificación'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSoundOption(dialogContext, notifier, 'Predeterminado', 'default'),
+            _buildSoundOption(dialogContext, notifier, 'Suave', 'soft'),
+            _buildSoundOption(dialogContext, notifier, 'Fuerte', 'loud'),
+            _buildSoundOption(dialogContext, notifier, 'Silencio', 'silent'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSoundOption(BuildContext dialogContext, SettingsNotifier notifier, String label, String sound) {
+    return ListTile(
+      title: Text(label),
+      trailing: const Icon(Icons.play_arrow),
+      onTap: () {
+        notifier.setNotificationSound(sound);
+        Navigator.pop(dialogContext);
+      },
     );
   }
 }

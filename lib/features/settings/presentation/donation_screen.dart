@@ -24,9 +24,9 @@ class DonationScreen extends StatelessWidget {
             style: TextStyle(color: Colors.grey),
           ),
           const SizedBox(height: 40),
-          _buildDonationOption(context, 'Pequeño café', '2.99€'),
-          _buildDonationOption(context, 'Cena de desarrollador', '14.99€'),
-          _buildDonationOption(context, 'Partidario Platino', '49.99€'),
+          _buildDonationOption(context, 'Pequeño café', '\$12.900 COP'),
+          _buildDonationOption(context, 'Cena de desarrollador', '\$64.900 COP'),
+          _buildDonationOption(context, 'Partidario Platino', '\$216.900 COP'),
           const SizedBox(height: 40),
           const Text(
             'Gracias por ser parte de la revolución de la privacidad.',

@@ -56,8 +56,9 @@ class PrivacySettingsScreen extends ConsumerWidget {
           SwitchListTile(
             title: const Text('Enviar estadísticas de uso', style: TextStyle(color: Colors.white)),
             subtitle: const Text('Ayúdanos a mejorar NovaApp enviando datos anónimos.', style: TextStyle(color: Colors.white54, fontSize: 12)),
-            value: false,
-            onChanged: (val) {},
+            value: settings.analyticsEnabled,
+            activeThumbColor: NovaColors.primary,
+            onChanged: (val) => notifier.setAnalyticsEnabled(val),
           ),
         ],
       ),

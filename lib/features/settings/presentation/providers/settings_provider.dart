@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-enum BubbleStyle { standard, geometric, minimal }
+import 'package:novaapp/features/settings/data/models.dart';
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -16,6 +15,8 @@ class SettingsState {
   final bool dndEnabled;
   final String dndStartTime; // "HH:mm"
   final String dndEndTime;   // "HH:mm"
+  final String notificationSound;
+  final bool analyticsEnabled;
 
   const SettingsState({
     this.themeMode = ThemeMode.dark,
@@ -30,6 +31,8 @@ class SettingsState {
     this.dndEnabled = false,
     this.dndStartTime = "22:00",
     this.dndEndTime = "08:00",
+    this.notificationSound = 'default',
+    this.analyticsEnabled = false,
   });
 
   SettingsState copyWith({
@@ -45,6 +48,8 @@ class SettingsState {
     bool? dndEnabled,
     String? dndStartTime,
     String? dndEndTime,
+    String? notificationSound,
+    bool? analyticsEnabled,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -59,6 +64,8 @@ class SettingsState {
       dndEnabled: dndEnabled ?? this.dndEnabled,
       dndStartTime: dndStartTime ?? this.dndStartTime,
       dndEndTime: dndEndTime ?? this.dndEndTime,
+      notificationSound: notificationSound ?? this.notificationSound,
+      analyticsEnabled: analyticsEnabled ?? this.analyticsEnabled,
     );
   }
 }
@@ -77,6 +84,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   void setAutoSaveMedia(bool value) => state = state.copyWith(autoSaveMedia: value);
   void setDndEnabled(bool value) => state = state.copyWith(dndEnabled: value);
   void setDndRange(String start, String end) => state = state.copyWith(dndStartTime: start, dndEndTime: end);
+  void setNotificationSound(String sound) => state = state.copyWith(notificationSound: sound);
+  void setAnalyticsEnabled(bool value) => state = state.copyWith(analyticsEnabled: value);
 }
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>((ref) {

@@ -1,30 +1,24 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:novaapp/main.dart';
+import 'package:novaapp/core/utils/identity_utils.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const NovaApp());
+  test('IdentityUtils.generateId returns NOVA-XXXXXXXX format', () {
+    final id = IdentityUtils.generateId();
+    expect(id, matches(RegExp(r'^NOVA-[A-Z0-9]{8}$')));
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  test('IdentityUtils.generateId produces different IDs', () {
+    final id1 = IdentityUtils.generateId();
+    final id2 = IdentityUtils.generateId();
+    expect(id1, isNot(equals(id2)));
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('IdentityUtils characters are valid (no 0,1,I,O)', () {
+    final id = IdentityUtils.generateId();
+    final suffix = id.replaceAll('NOVA-', '');
+    expect(suffix.contains('0'), isFalse);
+    expect(suffix.contains('1'), isFalse);
+    expect(suffix.contains('I'), isFalse);
+    expect(suffix.contains('O'), isFalse);
   });
 }

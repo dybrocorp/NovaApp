@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:pattern_lock/pattern_lock.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
 import 'package:novaapp/features/settings/presentation/providers/security_providers.dart';
 
@@ -59,8 +58,8 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
               await repo.setLockEnabled(val);
               ref.read(appLockEnabledProvider.notifier).state = val;
               if (val && lockType == 'none') {
-                // If enabling for the first time, default to Pattern
-                _showPatternSetupDialog();
+                // If enabling for the first time, default to PIN
+                _showPinSetupDialog();
               }
             },
           ),
@@ -70,16 +69,16 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text('MÉTODO DE BLOQUEO', style: TextStyle(color: NovaColors.textTertiary, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
-            
-            // Mutually exclusive choice between Pattern and Fingerprint
+
+            // Mutually exclusive choice between PIN and Fingerprint
             ListTile(
-              title: const Text('Patrón de 9 puntos', style: TextStyle(color: Colors.white)),
+              title: const Text('PIN numérico', style: TextStyle(color: Colors.white)),
               trailing: Icon(
-                lockType == 'pattern' ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                color: lockType == 'pattern' ? NovaColors.primary : Colors.white24,
+                lockType == 'pin' ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                color: lockType == 'pin' ? NovaColors.primary : Colors.white24,
               ),
               onTap: () async {
-                _showPatternSetupDialog();
+                _showPinSetupDialog();
               },
             ),
 
@@ -168,59 +167,90 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
     );
   }
 
-  void _showPatternSetupDialog() {
+  void _showPinSetupDialog() {
+    String? _firstPin;
+    String currentPin = '';
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.black,
-        contentPadding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text('Configurar Patrón', style: TextStyle(color: Colors.white, fontSize: 18)),
-        ),
-        content: SizedBox(
-          width: 300,
-          height: 380,
-          child: Column(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Colors.black,
+          title: const Text('Configurar PIN', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Dibuja tu patrón de 9 puntos', style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 32),
-              Expanded(
-                child: PatternLock(
-                  relativePadding: 40,
-                  notSelectedColor: Colors.white10,
-                  selectedColor: NovaColors.primary,
-                  pointRadius: 10,
-                  onInputComplete: (List<int> input) async {
-                    if (input.length < 4) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El patrón debe unir al menos 4 puntos')));
-                      return;
-                    }
-                    final repo = ref.read(securityRepositoryProvider);
-                    await repo.savePattern(input);
-                    await repo.setLockType('pattern');
-                    ref.read(appLockTypeProvider.notifier).state = 'pattern';
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Patrón guardado correctamente')));
-                  },
+              const Text('Ingresa un PIN de 4-6 dígitos', style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 20),
+              TextField(
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: const TextStyle(color: Colors.white, fontSize: 24),
+                textAlign: TextAlign.center,
+                decoration: InputDecoration(
+                  counterText: '',
+                  filled: true,
+                  fillColor: const Color(0xFF1C1C1E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
-              ),
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text('Une al menos 4 puntos.', style: TextStyle(color: Colors.white24, fontSize: 11)),
+                onChanged: (value) {
+                  setDialogState(() => currentPin = value);
+                },
               ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCELAR', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (currentPin.length < 4 || currentPin.length > 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('El PIN debe tener entre 4 y 6 dígitos')),
+                  );
+                  return;
+                }
+                if (_firstPin == null) {
+                  setDialogState(() {
+                    _firstPin = currentPin;
+                    currentPin = '';
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Confirma el PIN')),
+                  );
+                } else {
+                  if (currentPin == _firstPin) {
+                    final repo = ref.read(securityRepositoryProvider);
+                    repo.savePin(currentPin);
+                    repo.setLockType('pin');
+                    ref.read(appLockTypeProvider.notifier).state = 'pin';
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('PIN guardado correctamente')),
+                    );
+                  } else {
+                    setDialogState(() {
+                      _firstPin = null;
+                      currentPin = '';
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Los PIN no coinciden')),
+                    );
+                  }
+                }
+              },
+              child: const Text('CONTINUAR'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CANCELAR', style: TextStyle(color: Colors.white70)),
-          ),
-        ],
       ),
     );
   }

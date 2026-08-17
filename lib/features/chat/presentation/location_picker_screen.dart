@@ -3,6 +3,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/core/services/logger_service.dart';
+import 'dart:async';
 
 class LocationPickerScreen extends StatefulWidget {
   const LocationPickerScreen({super.key});
@@ -15,6 +17,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   LatLng? _currentLatLng;
   final MapController _mapController = MapController();
   bool _loading = true;
+  StreamSubscription<Position>? _positionStreamSubscription;
+  bool _isTrackingRealtime = false;
+  Timer? _updateTimer;
 
   // Nearby places (mocked for professional look)
   final List<Map<String, String>> _nearbyPlaces = [];
@@ -27,7 +32,31 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      final position = await Geolocator.getCurrentPosition();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() => _loading = false);
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() => _loading = false);
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() => _loading = false);
+        return;
+      }
+
+      // Get initial position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      
       setState(() {
         _currentLatLng = LatLng(position.latitude, position.longitude);
         _loading = false;
@@ -39,10 +68,54 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           {'name': 'Estación de Servicio', 'address': 'Calle 12 Sur #11-45, Villavicencio, CO', 'type': 'place'},
         ]);
       });
+      
       _mapController.move(_currentLatLng!, 16.0);
     } catch (e) {
       setState(() => _loading = false);
     }
+  }
+
+  void _startRealtimeTracking() {
+    if (_isTrackingRealtime) {
+      _stopRealtimeTracking();
+      return;
+    }
+
+    setState(() => _isTrackingRealtime = true);
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5, // Update every 5 meters
+      timeLimit: Duration(seconds: 30),
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (Position position) {
+        if (mounted) {
+          final newLatLng = LatLng(position.latitude, position.longitude);
+          setState(() {
+            _currentLatLng = newLatLng;
+          });
+          _mapController.move(newLatLng, 16.0);
+        }
+      },
+      onError: (error) {
+        LoggerService.error('Location stream error', error: error, tag: 'Location');
+      },
+    );
+  }
+
+  void _stopRealtimeTracking() {
+    _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
+    setState(() => _isTrackingRealtime = false);
+  }
+
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    _updateTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -146,6 +219,31 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
                       ),
                       child: const Icon(Icons.my_location, color: Colors.white70, size: 22),
+                    ),
+                  ),
+                ),
+
+                // Realtime Tracking Button
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  bottom: null,
+                  child: GestureDetector(
+                    onTap: _startRealtimeTracking,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      margin: const EdgeInsets.only(top: 64),
+                      decoration: BoxDecoration(
+                        color: _isTrackingRealtime ? NovaColors.primary : const Color(0xFF2C2C2E),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+                      ),
+                      child: Icon(
+                        _isTrackingRealtime ? Icons.location_searching : Icons.location_searching_outlined,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ),

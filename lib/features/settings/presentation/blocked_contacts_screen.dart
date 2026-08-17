@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
-import 'package:novaapp/features/chat/data/chat_providers.dart';
+import 'package:novaapp/features/chat/domain/models.dart';
 
-class BlockedContactsScreen extends ConsumerWidget {
+class BlockedContactsScreen extends ConsumerStatefulWidget {
   const BlockedContactsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // For this parity demo, we'll use a mocked list or filter existing contacts
-    final contactsAsync = ref.watch(contactsProvider);
+  ConsumerState<BlockedContactsScreen> createState() => _BlockedContactsScreenState();
+}
 
+class _BlockedContactsScreenState extends ConsumerState<BlockedContactsScreen> {
+  final List<ChatContact> _blockedContacts = [];
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: NovaColors.background,
       appBar: AppBar(
@@ -29,35 +33,53 @@ class BlockedContactsScreen extends ConsumerWidget {
             ),
           ),
           Expanded(
-            child: contactsAsync.when(
-              data: (contacts) {
-                // Mock a few blocked contacts for UI parity
-                return ListView(
-                  children: [
-                    _buildBlockedTile(context, 'Spam User', 'NO-SPAM-123'),
-                    _buildBlockedTile(context, 'Bot Account', 'NO-BOT-999'),
-                  ],
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, s) => Center(child: Text('Error: $e')),
-            ),
+            child: _blockedContacts.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.block, size: 64, color: Colors.white24),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No hay contactos bloqueados',
+                          style: TextStyle(color: Colors.white54, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _blockedContacts.length,
+                    itemBuilder: (context, index) {
+                      final contact = _blockedContacts[index];
+                      return _buildBlockedTile(context, contact);
+                    },
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBlockedTile(BuildContext context, String name, String id) {
+  Widget _buildBlockedTile(BuildContext context, ChatContact contact) {
     return ListTile(
-      leading: const CircleAvatar(
-        backgroundColor: Color(0xFF2C2C2E),
-        child: Icon(Icons.person, color: Colors.white70),
+      leading: CircleAvatar(
+        backgroundColor: const Color(0xFF2C2C2E),
+        child: Text(
+          contact.name[0].toUpperCase(),
+          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
+        ),
       ),
-      title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-      subtitle: Text(id, style: const TextStyle(color: Colors.white24, fontSize: 12, fontFamily: 'monospace')),
+      title: Text(contact.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      subtitle: Text(contact.id, style: const TextStyle(color: Colors.white24, fontSize: 12, fontFamily: 'monospace')),
       trailing: TextButton(
-        onPressed: () {},
+        onPressed: () {
+          setState(() {
+            _blockedContacts.remove(contact);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${contact.name} desbloqueado')),
+          );
+        },
         child: const Text('DESBLOQUEAR', style: TextStyle(color: NovaColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
       ),
     );

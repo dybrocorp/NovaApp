@@ -5,8 +5,10 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   file_selector_windows
+  firebase_core
   flutter_secure_storage_windows
   flutter_sound
+  flutter_webrtc
   geolocator_windows
   local_auth_windows
   permission_handler_windows

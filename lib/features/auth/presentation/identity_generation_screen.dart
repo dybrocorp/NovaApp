@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/core/services/encryption_service.dart';
+import 'package:novaapp/core/services/logger_service.dart';
 import 'package:novaapp/features/auth/presentation/auth_providers.dart';
 import 'package:novaapp/features/auth/presentation/profile_setup_screen.dart';
+import 'package:novaapp/core/services/supabase_service.dart' as supabase;
 
 /// Threema-style identity generation screen.
 /// Generates a unique NOVA ID + cryptographic key pair automatically.
@@ -40,18 +43,50 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
       _statusText = 'Calculando claves criptográficas...';
     });
 
-    final repo = ref.read(identityRepositoryProvider);
-    final id = await repo.createIdentity();
+    try {
+      setState(() => _statusText = 'Generando identidad local...');
+      final repo = ref.read(identityRepositoryProvider);
+      final id = await repo.createIdentity();
+      LoggerService.info('Local identity created: $id', tag: 'Auth');
 
-    await Future.delayed(const Duration(milliseconds: 1500));
+      setState(() => _statusText = 'Generando claves de encriptación...');
+      try {
+        final encryptionService = ref.read(encryptionServiceProvider);
+        await encryptionService.ensureKeyPair();
+        LoggerService.info('Encryption keys generated', tag: 'Auth');
+      } catch (encryptionError) {
+        LoggerService.warning('Encryption key generation failed (non-critical)', error: encryptionError, tag: 'Auth');
+      }
 
-    if (mounted) {
-      setState(() {
-        _generatedId = id;
-        _isComplete = true;
-        _isGenerating = false;
-        _statusText = '¡Identidad generada con éxito!';
-      });
+      try {
+        final supabaseService = ref.read(supabase.supabaseServiceProvider);
+        await supabaseService.createAnonymousSession();
+        LoggerService.info('Anonymous session created', tag: 'Auth');
+        
+        await supabaseService.createOrUpdateProfile(id, 'Usuario');
+        LoggerService.info('Profile created in Supabase with nova_id: $id', tag: 'Auth');
+      } catch (supabaseError) {
+        LoggerService.warning('Supabase connection failed (optional)', error: supabaseError, tag: 'Auth');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 1500));
+
+      if (mounted) {
+        setState(() {
+          _generatedId = id;
+          _isComplete = true;
+          _isGenerating = false;
+          _statusText = 'Nova creó tu perfil';
+        });
+      }
+    } catch (e) {
+      LoggerService.error('Error in identity generation', error: e, tag: 'Auth');
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+          _statusText = 'Error: ${e.toString().substring(0, e.toString().length > 50 ? 50 : e.toString().length)}...';
+        });
+      }
     }
   }
 

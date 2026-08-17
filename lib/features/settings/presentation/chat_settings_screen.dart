@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
 import 'package:novaapp/features/settings/presentation/providers/settings_provider.dart';
+import 'package:novaapp/features/settings/data/models.dart';
 
 class ChatSettingsScreen extends ConsumerWidget {
   const ChatSettingsScreen({super.key});
@@ -39,8 +40,9 @@ class ChatSettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             title: const Text('Estilo de burbuja', style: TextStyle(color: Colors.white)),
+            subtitle: Text(_getBubbleStyleName(settings.bubbleStyle), style: const TextStyle(color: NovaColors.primary, fontSize: 12)),
             trailing: const Icon(Icons.chevron_right, color: Colors.white24),
-            onTap: () {},
+            onTap: () => _showBubbleStyleDialog(context, settings, notifier),
           ),
           
           const Divider(color: Colors.white10),
@@ -60,29 +62,29 @@ class ChatSettingsScreen extends ConsumerWidget {
   void _showFontSizeDialog(BuildContext context, SettingsState settings, SettingsNotifier notifier) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: NovaColors.surface,
         title: const Text('Tamaño de fuente', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildFontSizeOption(notifier, 'Pequeño', 14.0, settings.fontSize),
-            _buildFontSizeOption(notifier, 'Normal', 16.0, settings.fontSize),
-            _buildFontSizeOption(notifier, 'Grande', 18.0, settings.fontSize),
-            _buildFontSizeOption(notifier, 'Muy grande', 20.0, settings.fontSize),
+            _buildFontSizeOption(dialogContext, notifier, 'Pequeño', 14.0, settings.fontSize),
+            _buildFontSizeOption(dialogContext, notifier, 'Normal', 16.0, settings.fontSize),
+            _buildFontSizeOption(dialogContext, notifier, 'Grande', 18.0, settings.fontSize),
+            _buildFontSizeOption(dialogContext, notifier, 'Muy grande', 20.0, settings.fontSize),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFontSizeOption(SettingsNotifier notifier, String label, double size, double current) {
+  Widget _buildFontSizeOption(BuildContext dialogContext, SettingsNotifier notifier, String label, double size, double current) {
     return ListTile(
       title: Text(label, style: const TextStyle(color: Colors.white)),
       trailing: current == size ? const Icon(Icons.check, color: NovaColors.primary) : null,
       onTap: () {
         notifier.setFontSize(size);
-        // Navigator.pop(context); // Context is not available here without naming it
+        Navigator.pop(dialogContext);
       },
     );
   }
@@ -100,5 +102,45 @@ class ChatSettingsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  void _showBubbleStyleDialog(BuildContext context, SettingsState settings, SettingsNotifier notifier) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: NovaColors.surface,
+        title: const Text('Estilo de burbuja', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildBubbleStyleOption(dialogContext, notifier, 'Estándar', BubbleStyle.standard, settings.bubbleStyle),
+            _buildBubbleStyleOption(dialogContext, notifier, 'Geométrico', BubbleStyle.geometric, settings.bubbleStyle),
+            _buildBubbleStyleOption(dialogContext, notifier, 'Minimalista', BubbleStyle.minimal, settings.bubbleStyle),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBubbleStyleOption(BuildContext dialogContext, SettingsNotifier notifier, String label, BubbleStyle style, BubbleStyle current) {
+    return ListTile(
+      title: Text(label, style: const TextStyle(color: Colors.white)),
+      trailing: current == style ? const Icon(Icons.check, color: NovaColors.primary) : null,
+      onTap: () {
+        notifier.setBubbleStyle(style);
+        Navigator.pop(dialogContext);
+      },
+    );
+  }
+
+  String _getBubbleStyleName(BubbleStyle style) {
+    switch (style) {
+      case BubbleStyle.standard:
+        return 'Estándar';
+      case BubbleStyle.geometric:
+        return 'Geométrico';
+      case BubbleStyle.minimal:
+        return 'Minimalista';
+    }
   }
 }

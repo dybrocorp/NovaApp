@@ -57,8 +57,16 @@ dependencies:
   latlong2: ^0.9.1
   supabase_flutter: ^2.12.4
   cryptography: ^2.9.0
-  pattern_lock: ^2.0.0
+  flutter_dotenv: ^5.1.0
   secure_application: ^4.1.0
+  flutter_webrtc: ^0.12.0
+  firebase_core: ^3.15.2
+  firebase_messaging: ^15.1.4
+  flutter_local_notifications: ^18.0.1
+  cached_network_image: ^3.4.1
+  socket_io_client: ^2.0.3+1
+  photo_manager: ^3.9.0
+  device_info_plus: ^11.1.1
   photo_view: ^0.15.0
   share_plus: ^10.1.3
   local_auth: ^3.0.1
@@ -89,6 +97,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - .env
     - assets/logo.png
     - assets/chat_bg.png
     - assets/onboarding.png

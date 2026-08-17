@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,7 @@ import 'package:novaapp/features/chat/presentation/story_viewer_screen.dart';
 import 'package:novaapp/features/chat/data/chat_providers.dart';
 import 'package:novaapp/features/chat/presentation/contact_detail_screen.dart';
 import 'package:novaapp/features/auth/presentation/auth_providers.dart';
+import 'package:novaapp/core/services/supabase_service.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
@@ -65,10 +67,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen())),
           child: CircleAvatar(
             backgroundColor: const Color(0xFF2C2C2E),
-            backgroundImage: avatarAsync.value != null 
-              ? FileImage(File(avatarAsync.value!)) 
+            backgroundImage: avatarAsync.value != null && avatarAsync.value!.isNotEmpty
+              ? (avatarAsync.value!.startsWith('data:') || RegExp(r'^[A-Za-z0-9+/=]').hasMatch(avatarAsync.value!.substring(0, avatarAsync.value!.length > 10 ? 10 : avatarAsync.value!.length)))
+                ? MemoryImage(base64Decode(avatarAsync.value!))
+                : FileImage(File(avatarAsync.value!))
               : null,
-            child: avatarAsync.value == null 
+            child: avatarAsync.value == null || avatarAsync.value!.isEmpty
               ? const Icon(Icons.person, color: Colors.white70, size: 20) 
               : null,
           ),
@@ -76,17 +80,40 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       ),
       actions: [
         if (_selectedIndex == 0) ...[
-          IconButton(icon: const Icon(Icons.camera_alt_outlined), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.camera_alt_outlined), 
+            onPressed: () {
+              // Open camera to take photo for status/story
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Función de cámara para historias próximamente')),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner), 
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ScannerScreen())),
           ),
         ],
         if (_selectedIndex == 1) 
-          IconButton(icon: const Icon(Icons.person_add_alt_1_outlined), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.person_add_alt_1_outlined), 
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NewMessageScreen())),
+          ),
         if (_selectedIndex == 2)
-          IconButton(icon: const Icon(Icons.delete_outline), onPressed: () {}),
-        IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.delete_outline), 
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Función de eliminar historial de llamadas próximamente')),
+              );
+            },
+          ),
+        IconButton(
+          icon: const Icon(Icons.more_vert), 
+          onPressed: () {
+            _showMoreOptions(context);
+          },
+        ),
       ],
     );
   }
@@ -155,7 +182,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 itemCount: contacts.length,
                 itemBuilder: (context, index) {
                   final contact = contacts[index];
-                  final bool showHeader = index == 0 || contacts[index-1].name[0].toUpperCase() != contact.name[0].toUpperCase();
+                  final displayName = contact.name.isNotEmpty ? contact.name : 'Sin nombre';
+                  final bool showHeader = index == 0 || contacts[index-1].name.toUpperCase() != contact.name.toUpperCase();
                   
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,7 +194,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           color: Colors.white.withValues(alpha: 0.03),
                           child: Text(
-                            contact.name[0].toUpperCase(),
+                            displayName[0].toUpperCase(),
                             style: const TextStyle(color: NovaColors.primary, fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -180,7 +208,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                             backgroundColor: contact.name == 'Notas privadas' ? const Color(0xFFE6D7BD) : const Color(0xFF2C2C2E),
                             child: contact.name == 'Notas privadas' 
                               ? const Icon(Icons.description_outlined, color: Color(0xFF5D4037))
-                              : Text(contact.name[0], style: const TextStyle(color: Colors.white)),
+                              : Text(displayName[0], style: const TextStyle(color: Colors.white)),
                           ),
                         ),
                         title: Row(
@@ -317,7 +345,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: 'Chats'),
         BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Contactos'),
         BottomNavigationBarItem(icon: Icon(Icons.call_outlined), activeIcon: Icon(Icons.call), label: 'Llamadas'),
-        BottomNavigationBarItem(icon: Icon(Icons.filter_none_outlined), activeIcon: Icon(Icons.filter_none), label: 'Historias'),
+        BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline), activeIcon: Icon(Icons.add_circle), label: 'Historias'),
       ],
     );
   }
@@ -330,12 +358,97 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       backgroundColor: NovaColors.primary,
       onPressed: () {
         if (_selectedIndex == 1) {
-          // Add contact behavior
+          _showAddContactDialog();
         } else {
           Navigator.push(context, MaterialPageRoute(builder: (context) => const NewMessageScreen()));
         }
       },
       child: Icon(_selectedIndex == 1 ? Icons.person_add : Icons.message, color: Colors.white),
+    );
+  }
+
+  void _showAddContactDialog() {
+    final TextEditingController idController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Agregar contacto por ID',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: idController,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Ingresa el ID de Nova',
+            hintStyle: const TextStyle(color: Colors.grey),
+            filled: true,
+            fillColor: const Color(0xFF2C2C2E),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (idController.text.isNotEmpty) {
+                Navigator.pop(context);
+                // Navigate to scanner screen with the ID pre-filled
+                // Or directly search and add the contact
+                final supabaseService = ref.read(supabaseServiceProvider);
+                final user = await supabaseService.getUserByNovaId(idController.text);
+                
+                if (user != null) {
+                  // Add contact logic here
+                  final repo = ref.read(identityRepositoryProvider);
+                  final myNovaId = await repo.getId();
+                  
+                  if (myNovaId != null) {
+                    final contact = ChatContact(
+                      id: user['nova_id'],
+                      name: user['name'] ?? 'Usuario',
+                      publicKey: user['public_key'],
+                      verificationLevel: VerificationLevel.level1,
+                    );
+
+                    await ref.read(chatRepositoryProvider).saveContact(contact);
+                    await supabaseService.saveContact({
+                      'user_nova_id': myNovaId,
+                      'contact_id': user['nova_id'],
+                      'contact_name': user['name'] ?? 'Usuario',
+                      'verification_level': 'level1',
+                    });
+
+                    ref.invalidate(contactsProvider);
+                    
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Contacto añadido exitosamente')),
+                      );
+                    }
+                  }
+                } else {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Usuario no encontrado')),
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('Agregar', style: TextStyle(color: NovaColors.primary)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -363,13 +476,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   }
 
   Widget _buildChatListItem(ChatContact contact) {
+    final displayName = contact.name.isNotEmpty ? contact.name : 'Sin nombre';
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: CircleAvatar(
         radius: 28,
         backgroundColor: const Color(0xFF2C2C2E),
         child: Text(
-          contact.name[0], 
+          displayName[0], 
           style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)
         ),
       ),
@@ -481,6 +595,58 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             child: const Text('AGREGAR CHATS DE PRUEBA'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showMoreOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.settings, color: NovaColors.primary),
+              title: const Text('Configuración', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.star, color: NovaColors.primary),
+              title: const Text('Mensajes destacados', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Función de mensajes destacados próximamente')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock, color: NovaColors.primary),
+              title: const Text('Chats archivados', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Función de chats archivados próximamente')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_outline, color: NovaColors.primary),
+              title: const Text('Ayuda', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Función de ayuda próximamente')),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

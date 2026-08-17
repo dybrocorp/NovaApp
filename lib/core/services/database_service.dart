@@ -16,7 +16,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -47,14 +47,14 @@ class DatabaseService {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // Contacts Table
     await db.execute('''
       CREATE TABLE contacts (
         id TEXT PRIMARY KEY,
         name TEXT,
         lastMessage TEXT,
         lastMessageTime TEXT,
-        isArchived INTEGER DEFAULT 0
+        isArchived INTEGER DEFAULT 0,
+        publicKey TEXT
       )
     ''');
 

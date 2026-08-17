@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
+import 'package:novaapp/core/services/supabase_service.dart';
+import 'package:novaapp/core/services/logger_service.dart';
 import 'package:novaapp/features/auth/presentation/auth_providers.dart';
 import 'package:novaapp/features/auth/presentation/profile_setup_screen.dart';
 
@@ -16,17 +18,28 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   bool _isLoading = false;
   String? _error;
 
+  @override
+  void initState() {
+    super.initState();
+    _idController.text = 'NOVA-';
+  }
+
   Future<void> _handleRestore() async {
-    final id = _idController.text.trim().toUpperCase();
+    final text = _idController.text.trim().toUpperCase();
     
-    if (id.isEmpty) {
-      setState(() => _error = 'Por favor, ingresa tu ID de Nova.');
+    if (text.isEmpty || text == 'NOVA-') {
+      setState(() => _error = 'Por favor, ingresa los 8 caracteres de tu ID.');
       return;
     }
 
-    // Basic Threema-style validation (8 chars)
-    if (id.length < 8) {
-      setState(() => _error = 'El ID de Nova debe tener al menos 8 caracteres.');
+    // Ensure it starts with NOVA-
+    String id = text;
+    if (!id.startsWith('NOVA-')) {
+      id = 'NOVA-$text';
+    }
+
+    if (!RegExp(r'^NOVA-[A-Z0-9]{8}$').hasMatch(id)) {
+      setState(() => _error = 'El ID debe tener el formato NOVA-XXXXXXXX (13 caracteres).');
       return;
     }
 
@@ -38,6 +51,24 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
     try {
       final repo = ref.read(identityRepositoryProvider);
       await repo.restoreIdentity(id);
+
+      // Attempt to load profile from Supabase
+      try {
+        final supabaseService = ref.read(supabaseServiceProvider);
+        final user = await supabaseService.getUserByNovaId(id);
+        if (user != null) {
+          if (user['name'] != null) {
+            await repo.saveName(user['name']);
+          }
+          if (user['avatar_url'] != null) {
+            // For now, we save the base64 or URL string directly.
+            // If it's a URL or base64, we save it as the avatar path.
+            await repo.saveAvatarPath(user['avatar_url']);
+          }
+        }
+      } catch (e) {
+        LoggerService.error('Could not fetch user profile from Supabase', error: e, tag: 'Auth');
+      }
       
       // Refresh provider
       ref.invalidate(identityProvider);
@@ -79,7 +110,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
               controller: _idController,
               style: TextStyle(color: colorScheme.onSurface),
               decoration: InputDecoration(
-                hintText: 'ID de Nova (ej. ABC-123)',
+                hintText: 'NOVA-XXXXXXXX',
                 filled: true,
                 fillColor: colorScheme.surfaceContainerHighest,
                 errorText: _error,
@@ -90,7 +121,15 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               ),
               textCapitalization: TextCapitalization.characters,
-              maxLength: 8,
+              maxLength: 13,
+              onChanged: (val) {
+                if (!val.startsWith('NOVA-')) {
+                  _idController.text = 'NOVA-';
+                  _idController.selection = TextSelection.fromPosition(
+                    const TextPosition(offset: 5),
+                  );
+                }
+              },
             ),
             const SizedBox(height: 16),
             Text(
