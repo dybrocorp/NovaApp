@@ -98,17 +98,41 @@ class ModerationService {
     try {
       final response = await _client
           .from('blocked_users')
-          .select('''
-            blocked_id,
-            blocked_users!inner (
-              id,
-              nova_id,
-              display_name,
-              avatar_url
-            )
-          ''')
+          .select('blocked_id, created_at')
           .eq('blocker_id', blockerId);
-      return response;
+      
+      // Fetch profile data for each blocked user separately
+      final List<Map<String, dynamic>> blockedUsers = [];
+      for (final entry in response) {
+        try {
+          final profile = await _client
+              .from('users')
+              .select('id, nova_id, display_name, avatar_url')
+              .eq('nova_id', entry['blocked_id'])
+              .maybeSingle();
+          if (profile != null) {
+            blockedUsers.add({
+              ...profile,
+              'blocked_at': entry['created_at'],
+            });
+          } else {
+            blockedUsers.add({
+              'id': entry['blocked_id'],
+              'nova_id': entry['blocked_id'],
+              'display_name': 'Unknown',
+              'blocked_at': entry['created_at'],
+            });
+          }
+        } catch (_) {
+          blockedUsers.add({
+            'id': entry['blocked_id'],
+            'nova_id': entry['blocked_id'],
+            'display_name': 'Unknown',
+            'blocked_at': entry['created_at'],
+          });
+        }
+      }
+      return blockedUsers;
     } catch (e) {
       throw Exception('Error fetching blocked users: $e');
     }

@@ -45,5 +45,17 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>NovaApp necesita acceso a la cámara para tomar fotos y escanear códigos QR.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NovaApp necesita acceso al micrófono para grabar notas de voz y realizar llamadas.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>NovaApp necesita acceso a tus fotos para enviar imágenes en los chats.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>NovaApp necesita acceso a tus contactos para ayudarte a encontrar amigos.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NovaApp necesita tu ubicación para compartirla en los chats.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NovaApp necesita tu ubicación para compartirla en los chats.</string>
 </dict>
 </plist>

@@ -584,16 +584,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.5),
           ),
           const SizedBox(height: 24),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: NovaColors.primary),
-            onPressed: () async {
-              await ref.read(chatRepositoryProvider).saveContact(ChatContact(id: 'NOVA1', name: 'Axel', lastMessage: 'Melo'));
-              await ref.read(chatRepositoryProvider).saveContact(ChatContact(id: '+123456789', name: 'Soporte NovaApp', lastMessage: 'Bienvenido'));
-              await ref.read(chatRepositoryProvider).saveContact(ChatContact(id: 'me_notes', name: 'Notas privadas', lastMessage: 'Notas personales'));
-              ref.invalidate(contactsProvider);
-            },
-            child: const Text('AGREGAR CHATS DE PRUEBA'),
-          ),
+          const SizedBox.shrink(),
         ],
       ),
     );

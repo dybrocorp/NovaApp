@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:novaapp/core/constants.dart';
 import 'package:novaapp/core/services/database_service.dart';
 import 'package:novaapp/core/services/encryption_service.dart';
 import 'package:novaapp/core/services/supabase_service.dart';
@@ -9,7 +10,7 @@ import 'package:novaapp/features/auth/data/identity_repository.dart';
 import 'package:novaapp/features/chat/domain/chat_repository.dart';
 import 'package:novaapp/features/chat/domain/models.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart' as flutter_secure_storage;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart' as secure;
 
 class ChatRepositoryImpl implements ChatRepository {
   final DatabaseService _dbService;
@@ -32,7 +33,7 @@ class ChatRepositoryImpl implements ChatRepository {
   @override
   Future<List<ChatContact>> getContacts() async {
     final db = await _dbService.database;
-    final List<Map<String, dynamic>> maps = await db.query('contacts');
+    final maps = await db.query(AppConstants.tableContacts);
     return maps.map((m) => ChatContact.fromMap(m)).toList();
   }
 
@@ -40,7 +41,7 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<void> saveContact(ChatContact contact) async {
     final db = await _dbService.database;
     await db.insert(
-      'contacts',
+      AppConstants.tableContacts,
       contact.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -57,14 +58,12 @@ class ChatRepositoryImpl implements ChatRepository {
     final client = _supabaseService.client;
     if (client != null) {
       _identityRepository.getId().then((myNovaId) {
-        if (myNovaId == null || myNovaId.isEmpty || _isLocalOnlyChat(contactId)) {
-          return;
-        }
+        if (myNovaId == null || myNovaId.isEmpty || _isLocalOnlyChat(contactId)) return;
 
         final remoteChatId = _remoteChatId(myNovaId, contactId);
         client
-            .from('messages')
-            .stream(primaryKey: ['id'])
+            .from(AppConstants.tableMessages)
+            .stream(primaryKey: [AppConstants.colId])
             .eq('chat_id', remoteChatId)
             .listen((data) async {
           final db = await _dbService.database;
@@ -77,17 +76,17 @@ class ChatRepositoryImpl implements ChatRepository {
 
             if (!isMine &&
                 contact?.publicKey != null &&
-                contact?.publicKey!.isNotEmpty == true &&
+                contact!.publicKey!.isNotEmpty &&
                 decryptedText != null &&
-                contact?.id != '+123456789' &&
-                contact?.id != 'me_notes') {
+                !_isLocalOnlyChat(contactId)) {
               try {
-                decryptedText = await _encryptionService.decryptMessageFromSender(
+                decryptedText = await _encryptionService.decryptFromSender(
                   decryptedText,
-                  contact!.publicKey!,
+                  contact.publicKey!,
                 );
               } catch (e) {
-                decryptedText = "[Error de Descifrado]";
+                LoggerService.warning('Decryption failed for message', tag: 'Chat');
+                decryptedText = '[Error de Descifrado]';
               }
             }
 
@@ -96,21 +95,20 @@ class ChatRepositoryImpl implements ChatRepository {
               'chatId': contactId,
               'text': decryptedText,
               'mediaUrl': map['media_url'],
-              'type': map['type'] ?? 'text',
+              'type': map['type'] ?? AppConstants.msgTypeText,
               'timestamp': map['timestamp'],
               'isMe': isMine ? 1 : 0,
-              'status': map['status'] ?? 'sent',
+              'status': map['status'] ?? AppConstants.statusSent,
             };
 
             final existing = await db.query(
-              'messages',
+              AppConstants.tableMessages,
               where: 'chatId = ? AND timestamp = ?',
               whereArgs: [contactId, messageMap['timestamp']],
             );
 
             if (existing.isEmpty) {
-              await db.insert('messages', messageMap);
-
+              await db.insert(AppConstants.tableMessages, messageMap);
               if (!isMine && contact != null) {
                 await _notificationService.showLocalNotification(
                   title: contact.name,
@@ -120,7 +118,7 @@ class ChatRepositoryImpl implements ChatRepository {
               }
             } else {
               await db.update(
-                'messages',
+                AppConstants.tableMessages,
                 {'status': messageMap['status']},
                 where: 'chatId = ? AND timestamp = ?',
                 whereArgs: [contactId, messageMap['timestamp']],
@@ -137,15 +135,15 @@ class ChatRepositoryImpl implements ChatRepository {
 
   Future<ChatContact?> _getContact(String id) async {
     final db = await _dbService.database;
-    final List<Map<String, dynamic>> maps = await db.query('contacts', where: 'id = ?', whereArgs: [id]);
+    final maps = await db.query(AppConstants.tableContacts, where: 'id = ?', whereArgs: [id]);
     if (maps.isNotEmpty) return ChatContact.fromMap(maps.first);
     return null;
   }
 
   Future<void> _loadLocalMessages(String contactId) async {
     final db = await _dbService.database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'messages',
+    final maps = await db.query(
+      AppConstants.tableMessages,
       where: 'chatId = ?',
       whereArgs: [contactId],
       orderBy: 'timestamp DESC',
@@ -160,7 +158,6 @@ class ChatRepositoryImpl implements ChatRepository {
     final contact = await _getContact(message.chatId);
     final myNovaId = await _identityRepository.getId();
 
-    // Check if recipient is blocked by sender
     if (contact != null && myNovaId != null) {
       final isBlocked = await _moderationService.isUserBlocked(
         blockerId: myNovaId,
@@ -171,22 +168,17 @@ class ChatRepositoryImpl implements ChatRepository {
       }
     }
 
-    // Get real sender ID from storage instead of 'me'
     String realSenderId = message.senderId;
     if (realSenderId == 'me') {
       realSenderId = myNovaId ?? realSenderId;
       if (realSenderId == 'me') {
         try {
-          final storage = const flutter_secure_storage.FlutterSecureStorage();
-          final storedId = await storage.read(key: 'nova_id');
-          if (storedId != null) {
-            realSenderId = storedId;
-          }
+          final storedId = await const secure.FlutterSecureStorage().read(key: AppConstants.keyNovaId);
+          if (storedId != null) realSenderId = storedId;
         } catch (_) {}
       }
     }
 
-    // 1. Save locally as plaintext, using the real sender id to avoid remote duplicates.
     final localMessage = Message(
       senderId: realSenderId,
       chatId: message.chatId,
@@ -198,24 +190,23 @@ class ChatRepositoryImpl implements ChatRepository {
       status: message.status,
       pollData: message.pollData,
     );
-    await db.insert('messages', localMessage.toMap());
+    await db.insert(AppConstants.tableMessages, localMessage.toMap());
 
-    // 2. Prepare for remote (encrypt)
     String? encryptedText = message.text;
-    // Only encrypt if contact has a public key (for real users)
-    // Special contacts like "Soporte NovaApp" and "Notas privadas" don't have encryption
-    if (contact?.publicKey != null &&
-        contact?.publicKey!.isNotEmpty == true &&
+    final shouldEncrypt = contact?.publicKey != null &&
+        contact!.publicKey!.isNotEmpty &&
         message.text != null &&
-        contact?.id != '+123456789' &&
-        contact?.id != 'me_notes') {
+        !_isLocalOnlyChat(message.chatId);
+
+    if (shouldEncrypt) {
       try {
-        encryptedText = await _encryptionService.encryptMessageForRecipient(
+        encryptedText = await _encryptionService.encryptForRecipient(
           message.text!,
           contact!.publicKey!,
         );
       } catch (e) {
-        LoggerService.warning('Encryption failed, sending plaintext', error: e, tag: 'Chat');
+        LoggerService.error('CRITICAL: Encryption failed', error: e, tag: 'Chat');
+        throw StateError('Cannot send: encryption failed');
       }
     }
 
@@ -238,14 +229,14 @@ class ChatRepositoryImpl implements ChatRepository {
     try {
       await _supabaseService.sendMessage(remoteMap);
     } catch (e) {
-      LoggerService.error('Error sending message to Supabase', error: e, tag: 'Chat');
+      LoggerService.error('Error sending to Supabase', error: e, tag: 'Chat');
     }
 
     _loadLocalMessages(message.chatId);
   }
 
   bool _isLocalOnlyChat(String contactId) {
-    return contactId == '+123456789' || contactId == 'me_notes';
+    return contactId == AppConstants.supportContactId || contactId == AppConstants.privateNotesId;
   }
 
   String _remoteChatId(String userA, String userB) {

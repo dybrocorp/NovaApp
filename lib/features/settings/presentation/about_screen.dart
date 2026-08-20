@@ -21,7 +21,7 @@ class AboutScreen extends StatelessWidget {
               child: const Icon(Icons.bolt, size: 60, color: Colors.white),
             ),
             const SizedBox(height: 24),
-            const Text('NovaApp v2.0 (Premium)', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const Text('NovaApp v1.0.0', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const Text('Cifrado de grado militar', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 48),
             const Padding(

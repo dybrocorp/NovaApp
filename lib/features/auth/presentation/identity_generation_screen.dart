@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/theme/nova_colors.dart';
 import 'package:novaapp/core/services/encryption_service.dart';
+import 'package:novaapp/core/services/identity_service.dart';
 import 'package:novaapp/core/services/logger_service.dart';
+import 'package:novaapp/core/utils/identity_utils.dart';
 import 'package:novaapp/features/auth/presentation/auth_providers.dart';
 import 'package:novaapp/features/auth/presentation/profile_setup_screen.dart';
 import 'package:novaapp/core/services/supabase_service.dart' as supabase;
 
-/// Threema-style identity generation screen.
-/// Generates a unique NOVA ID + cryptographic key pair automatically.
 class IdentityGenerationScreen extends ConsumerStatefulWidget {
   const IdentityGenerationScreen({super.key});
 
@@ -18,7 +18,7 @@ class IdentityGenerationScreen extends ConsumerStatefulWidget {
 
 class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScreen> {
   double _entropyProgress = 0.0;
-  String _statusText = 'Mueve el dedo sobre la pantalla para generar tu identidad única.';
+  String _statusText = 'Mueve el dedo sobre la pantalla para generar tu identidad.';
   String? _generatedId;
   bool _isComplete = false;
   bool _isGenerating = false;
@@ -29,7 +29,8 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
 
     setState(() {
       _points.add(details.localPosition);
-      _entropyProgress += 0.005; // Adjust sensitivity
+      if (_points.length > 200) _points.removeRange(0, _points.length - 200);
+      _entropyProgress += 0.005;
       if (_entropyProgress >= 1.0) {
         _entropyProgress = 1.0;
         _startGeneration();
@@ -40,51 +41,71 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
   Future<void> _startGeneration() async {
     setState(() {
       _isGenerating = true;
-      _statusText = 'Calculando claves criptográficas...';
+      _statusText = 'Generando identidad...';
     });
 
     try {
-      setState(() => _statusText = 'Generando identidad local...');
+      // Step 1: Generate Nova ID (with check digit)
+      setState(() => _statusText = 'Creando tu Nova ID...');
       final repo = ref.read(identityRepositoryProvider);
       final id = await repo.createIdentity();
-      LoggerService.info('Local identity created: $id', tag: 'Auth');
+      LoggerService.info('Nova ID created: $id', tag: 'Auth');
 
-      setState(() => _statusText = 'Generando claves de encriptación...');
-      try {
-        final encryptionService = ref.read(encryptionServiceProvider);
-        await encryptionService.ensureKeyPair();
-        LoggerService.info('Encryption keys generated', tag: 'Auth');
-      } catch (encryptionError) {
-        LoggerService.warning('Encryption key generation failed (non-critical)', error: encryptionError, tag: 'Auth');
-      }
+      // Step 2: Generate X3DH key bundle
+      setState(() => _statusText = 'Generando claves criptograficas...');
+      final encryptionService = ref.read(encryptionServiceProvider);
+      await encryptionService.ensureKeyPair();
+      LoggerService.info('Identity key pair generated', tag: 'Auth');
 
+      // Step 3: Generate and store device ID
+      final deviceId = await repo.getOrCreateDeviceId();
+      LoggerService.info('Device ID: $deviceId', tag: 'Auth');
+
+      // Step 4: Generate account ID (derived from Nova ID)
+      final accountId = await repo.getAccountId();
+      LoggerService.info('Account ID: $accountId', tag: 'Auth');
+
+      // Step 5: Create Supabase session + upload keys
+      setState(() => _statusText = 'Registrando claves en el servidor...');
       try {
         final supabaseService = ref.read(supabase.supabaseServiceProvider);
         await supabaseService.createAnonymousSession();
         LoggerService.info('Anonymous session created', tag: 'Auth');
-        
+
+        // Upload identity key (public) to Supabase
+        final publicKey = await encryptionService.getPublicKey();
+        if (publicKey != null) {
+          final identityService = ref.read(identityServiceProvider);
+          await identityService.registerIdentityKey(
+            novaId: id,
+            identityKeyPublic: publicKey,
+          );
+          LoggerService.info('Identity key registered on server', tag: 'Auth');
+        }
+
+        // Create profile
         await supabaseService.createOrUpdateProfile(id, 'Usuario');
-        LoggerService.info('Profile created in Supabase with nova_id: $id', tag: 'Auth');
-      } catch (supabaseError) {
-        LoggerService.warning('Supabase connection failed (optional)', error: supabaseError, tag: 'Auth');
+        LoggerService.info('Profile created', tag: 'Auth');
+      } catch (e) {
+        LoggerService.warning('Supabase registration failed (non-critical)', error: e, tag: 'Auth');
       }
 
-      await Future.delayed(const Duration(milliseconds: 1500));
+      await Future.delayed(const Duration(milliseconds: 1200));
 
       if (mounted) {
         setState(() {
           _generatedId = id;
           _isComplete = true;
           _isGenerating = false;
-          _statusText = 'Nova creó tu perfil';
+          _statusText = 'Identidad creada exitosamente';
         });
       }
     } catch (e) {
-      LoggerService.error('Error in identity generation', error: e, tag: 'Auth');
+      LoggerService.error('Identity generation failed', error: e, tag: 'Auth');
       if (mounted) {
         setState(() {
           _isGenerating = false;
-          _statusText = 'Error: ${e.toString().substring(0, e.toString().length > 50 ? 50 : e.toString().length)}...';
+          _statusText = 'Error al crear la identidad. Intenta de nuevo.';
         });
       }
     }
@@ -101,7 +122,7 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
             children: [
               const SizedBox(height: 48),
               Text(
-                _isComplete ? 'IDENTIDAD CREADA' : 'GENERAR ENTROPÍA',
+                _isComplete ? 'IDENTIDAD CREADA' : 'GENERAR ENTROPIA',
                 style: const TextStyle(
                   color: NovaColors.primary,
                   fontSize: 12,
@@ -146,14 +167,19 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
                                 const Icon(Icons.verified_user, size: 80, color: Colors.green),
                                 const SizedBox(height: 24),
                                 Text(
-                                  _generatedId ?? '',
+                                  IdentityUtils.formatForDisplay(_generatedId ?? ''),
                                   style: const TextStyle(
                                     color: Colors.white,
-                                    fontSize: 32,
+                                    fontSize: 28,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'monospace',
                                     letterSpacing: 4,
                                   ),
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'Guarda este ID. Es tu identidad unica.',
+                                  style: TextStyle(color: Colors.white54, fontSize: 12),
                                 ),
                               ],
                             ),

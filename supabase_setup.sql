@@ -137,14 +137,27 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE call_history ENABLE ROW LEVEL SECURITY;
 
--- Políticas de RLS
+-- Políticas de RLS (CORREGIDAS: solo acceso propio)
 CREATE POLICY "Permitir lectura pública de usuarios" ON public.users FOR SELECT USING (true);
 CREATE POLICY "Permitir inserción de propio usuario" ON public.users FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Permitir actualización de propio usuario" ON public.users FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Permitir eliminación de propio usuario" ON public.users FOR DELETE USING (auth.uid() = id);
 
-CREATE POLICY "Permitir todo en mensajes" ON messages FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir todo en contactos" ON contacts FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir todo en llamadas" ON call_history FOR ALL USING (true) WITH CHECK (true);
+-- Messages: solo participantes del chat pueden acceder
+CREATE POLICY "Users can read own sent messages" ON messages FOR SELECT USING (sender_id = auth.uid()::text);
+CREATE POLICY "Users can insert own messages" ON messages FOR INSERT WITH CHECK (sender_id = auth.uid()::text);
+CREATE POLICY "Users can update own message status" ON messages FOR UPDATE USING (sender_id = auth.uid()::text);
+
+-- Contacts: solo el propietario puede acceder a sus contactos
+CREATE POLICY "Users can read own contacts" ON contacts FOR SELECT USING (user_nova_id = auth.uid()::text);
+CREATE POLICY "Users can insert own contacts" ON contacts FOR INSERT WITH CHECK (user_nova_id = auth.uid()::text);
+CREATE POLICY "Users can update own contacts" ON contacts FOR UPDATE USING (user_nova_id = auth.uid()::text);
+CREATE POLICY "Users can delete own contacts" ON contacts FOR DELETE USING (user_nova_id = auth.uid()::text);
+
+-- Call history: solo el propietario puede acceder a su historial
+CREATE POLICY "Users can read own call history" ON call_history FOR SELECT USING (user_nova_id = auth.uid()::text);
+CREATE POLICY "Users can insert own call history" ON call_history FOR INSERT WITH CHECK (user_nova_id = auth.uid()::text);
+CREATE POLICY "Users can delete own call history" ON call_history FOR DELETE USING (user_nova_id = auth.uid()::text);
 
 -- 7. Tabla reports (reportes de usuarios)
 CREATE TABLE IF NOT EXISTS reports (
@@ -198,13 +211,19 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_shadowbanned BOOLEAN DEFAUL
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE blocked_users ENABLE ROW LEVEL SECURITY;
 
--- Políticas para reports
+-- Políticas para reports (solo propio)
 DROP POLICY IF EXISTS "Permitir todo en reports" ON reports;
-CREATE POLICY "Permitir todo en reports" ON reports FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Users can read own reports" ON reports FOR SELECT USING (reporter_id = auth.uid());
+CREATE POLICY "Users can insert own reports" ON reports FOR INSERT WITH CHECK (reporter_id = auth.uid());
+CREATE POLICY "Users cannot modify reports" ON reports FOR UPDATE USING (false);
+CREATE POLICY "Users cannot delete reports" ON reports FOR DELETE USING (false);
 
--- Políticas para blocked_users
+-- Políticas para blocked_users (solo propio)
 DROP POLICY IF EXISTS "Permitir todo en blocked_users" ON blocked_users;
-CREATE POLICY "Permitir todo en blocked_users" ON blocked_users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Users can read own blocks" ON blocked_users FOR SELECT USING (blocker_id = auth.uid());
+CREATE POLICY "Users can insert own blocks" ON blocked_users FOR INSERT WITH CHECK (blocker_id = auth.uid());
+CREATE POLICY "Users can delete own blocks" ON blocked_users FOR DELETE USING (blocker_id = auth.uid());
+CREATE POLICY "Users cannot modify blocks" ON blocked_users FOR UPDATE USING (false);
 
 -- 14. Agregar tablas a publicación realtime
 ALTER PUBLICATION supabase_realtime ADD TABLE reports;

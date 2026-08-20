@@ -75,7 +75,7 @@ class BackupIdScreen extends ConsumerWidget {
           const SizedBox(height: 16),
           _buildBackupOption(
             Icons.cloud_upload_outlined,
-            'Threema Safe',
+            'NovaApp Safe',
             'Copia de seguridad automática y anónima en la nube.',
             () {},
             isHighlight: true,

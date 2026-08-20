@@ -1,20 +1,19 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:novaapp/core/constants.dart';
 import 'package:novaapp/core/utils/identity_utils.dart';
 import 'package:novaapp/core/services/logger_service.dart';
 
 class IdentityRepository {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  static const String _idKey = 'nova_id';
-  static const String _nameKey = 'user_name';
 
-  static const String _avatarKey = 'user_avatar';
+  // ===== NOVA ID =====
 
   Future<String?> getId() async {
     try {
-      return await _storage.read(key: _idKey);
+      return await _storage.read(key: AppConstants.keyNovaId);
     } catch (e) {
-      LoggerService.error('Error reading ID, clearing corrupted data', error: e, tag: 'Identity');
-      await _storage.delete(key: _idKey);
+      LoggerService.error('Error reading ID', error: e, tag: 'Identity');
+      await _storage.delete(key: AppConstants.keyNovaId);
       return null;
     }
   }
@@ -24,32 +23,82 @@ class IdentityRepository {
     if (existingId != null) return existingId;
 
     final newId = IdentityUtils.generateId();
-    await _storage.write(key: _idKey, value: newId);
+    await _storage.write(key: AppConstants.keyNovaId, value: newId);
     return newId;
   }
 
   Future<void> restoreIdentity(String id) async {
-    await _storage.write(key: _idKey, value: id);
+    await _storage.write(key: AppConstants.keyNovaId, value: id);
   }
 
+  // ===== ACCOUNT ID (internal, derived from Nova ID) =====
+
+  Future<String?> getAccountId() async {
+    try {
+      var accountId = await _storage.read(key: AppConstants.keyAccountId);
+      if (accountId == null) {
+        // Derive from Nova ID if not stored yet
+        final novaId = await getId();
+        if (novaId != null) {
+          accountId = IdentityUtils.generateAccountId(novaId);
+          await _storage.write(key: AppConstants.keyAccountId, value: accountId);
+        }
+      }
+      return accountId;
+    } catch (e) {
+      LoggerService.error('Error getting account ID', error: e, tag: 'Identity');
+      return null;
+    }
+  }
+
+  // ===== DEVICE ID =====
+
+  Future<String> getOrCreateDeviceId() async {
+    var deviceId = await _storage.read(key: AppConstants.keyDeviceId);
+    if (deviceId == null) {
+      deviceId = IdentityUtils.generateDeviceId();
+      await _storage.write(key: AppConstants.keyDeviceId, value: deviceId);
+    }
+    return deviceId;
+  }
+
+  // ===== PROFILE =====
+
   Future<void> saveName(String name) async {
-    await _storage.write(key: _nameKey, value: name);
+    await _storage.write(key: AppConstants.keyUserName, value: name);
   }
 
   Future<String?> getName() async {
-    return await _storage.read(key: _nameKey);
+    return await _storage.read(key: AppConstants.keyUserName);
   }
 
   Future<void> saveAvatarPath(String path) async {
-    await _storage.write(key: _avatarKey, value: path);
+    await _storage.write(key: AppConstants.keyAvatar, value: path);
   }
 
   Future<String?> getAvatarPath() async {
-    return await _storage.read(key: _avatarKey);
+    return await _storage.read(key: AppConstants.keyAvatar);
   }
 
-  /// Permanently deletes ALL user data from secure storage.
+  // ===== DELETION =====
+
+  /// Deletes only NovaApp-specific data (not all secure storage).
   Future<void> deleteAllData() async {
-    await _storage.deleteAll();
+    final keys = [
+      AppConstants.keyNovaId,
+      AppConstants.keyAccountId,
+      AppConstants.keyDeviceId,
+      AppConstants.keyPrivateKey,
+      AppConstants.keyPublicKey,
+      AppConstants.keyUserName,
+      AppConstants.keyAvatar,
+      AppConstants.keyIdentityKeyPair,
+      AppConstants.keySignedPreKeyPair,
+      AppConstants.keySignedPreKeyId,
+      AppConstants.keyOneTimePreKeyPairs,
+    ];
+    for (final key in keys) {
+      await _storage.delete(key: key);
+    }
   }
 }
