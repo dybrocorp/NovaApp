@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/services/logger_service.dart';
@@ -153,8 +152,8 @@ class DoubleRatchetService {
     final messageKey = await _deriveMessageKey(state.sendingChainKey!);
     final newChainKey = await _advanceChainKey(state.sendingChainKey!);
 
-    // Encrypt with AES-256-GCM
-    final nonce = Uint8List(12);
+    // Encrypt with AES-256-GCM (CSPRNG nonce)
+    final nonce = _aesGcm.newNonce();
     final secretBox = await _aesGcm.encrypt(
       utf8.encode(plaintext),
       secretKey: SecretKey(messageKey),
@@ -192,8 +191,6 @@ class DoubleRatchetService {
     final nonce = base64Decode(encrypted['nonce']);
     final mac = base64Decode(encrypted['mac']);
     final messageNumber = encrypted['message_number'] as int;
-    final previousChainLength =
-        encrypted['previous_chain_length'] as int;
     final theirRatchetPubKey =
         encrypted['ratchet_public_key'] as String;
 
@@ -242,12 +239,20 @@ class DoubleRatchetService {
   // ===== INTERNAL =====
 
   Future<List<int>> _deriveMessageKey(List<int> chainKey) async {
-    final derived = await _hkdf.deriveKey(secretKey: SecretKey(chainKey));
+    // HKDF with distinct info parameter for message key derivation
+    final derived = await _hkdf.deriveKey(
+      secretKey: SecretKey(chainKey),
+      nonce: utf8.encode('nova-dr-message-key'),
+    );
     return (await derived.extractBytes()).sublist(0, 32);
   }
 
   Future<List<int>> _advanceChainKey(List<int> chainKey) async {
-    final derived = await _hkdf.deriveKey(secretKey: SecretKey(chainKey));
+    // HKDF with distinct info parameter for chain key advancement
+    final derived = await _hkdf.deriveKey(
+      secretKey: SecretKey(chainKey),
+      nonce: utf8.encode('nova-dr-chain-key'),
+    );
     return (await derived.extractBytes()).sublist(0, 32);
   }
 

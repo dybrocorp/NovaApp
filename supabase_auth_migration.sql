@@ -80,7 +80,10 @@ ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth_challenges ENABLE ROW LEVEL SECURITY;
 
--- Accounts: only readable by own owner (via nova_id in JWT)
+-- Accounts: only readable by own owner (via nova_id in JWT claims)
+DROP POLICY IF EXISTS "Owner can read own account" ON accounts;
+DROP POLICY IF EXISTS "Owner can update own account" ON accounts;
+DROP POLICY IF EXISTS "Public can check nova_id existence" ON accounts;
 CREATE POLICY "Owner can read own account" ON accounts
   FOR SELECT USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
 CREATE POLICY "Owner can update own account" ON accounts
@@ -89,6 +92,10 @@ CREATE POLICY "Public can check nova_id existence" ON accounts
   FOR SELECT USING (true);
 
 -- Devices: owner can manage their own devices
+DROP POLICY IF EXISTS "Owner can read own devices" ON devices;
+DROP POLICY IF EXISTS "Owner can insert own devices" ON devices;
+DROP POLICY IF EXISTS "Owner can update own devices" ON devices;
+DROP POLICY IF EXISTS "Owner can delete own devices" ON devices;
 CREATE POLICY "Owner can read own devices" ON devices
   FOR SELECT USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
 CREATE POLICY "Owner can insert own devices" ON devices
@@ -99,6 +106,9 @@ CREATE POLICY "Owner can delete own devices" ON devices
   FOR DELETE USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
 
 -- Sessions: only visible to own owner
+DROP POLICY IF EXISTS "Owner can read own sessions" ON sessions;
+DROP POLICY IF EXISTS "Owner can insert own sessions" ON sessions;
+DROP POLICY IF EXISTS "Owner can delete own sessions" ON sessions;
 CREATE POLICY "Owner can read own sessions" ON sessions
   FOR SELECT USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
 CREATE POLICY "Owner can insert own sessions" ON sessions
@@ -106,7 +116,8 @@ CREATE POLICY "Owner can insert own sessions" ON sessions
 CREATE POLICY "Owner can delete own sessions" ON sessions
   FOR DELETE USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
 
--- Auth challenges: only readable by system (Edge Functions)
+-- Auth challenges: only readable by system (Edge Functions use service_role)
+DROP POLICY IF EXISTS "System can manage challenges" ON auth_challenges;
 CREATE POLICY "System can manage challenges" ON auth_challenges
   FOR ALL USING (true);
 

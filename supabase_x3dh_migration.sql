@@ -49,22 +49,41 @@ ALTER TABLE signed_pre_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE one_time_pre_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crypto_sessions ENABLE ROW LEVEL SECURITY;
 
--- Signed pre-keys: readable by anyone (needed for X3DH), writable only by owner
+-- Signed pre-keys: readable by anyone (needed for X3DH), writable/deletable only by owner
+DROP POLICY IF EXISTS "Public can read signed pre-keys" ON signed_pre_keys;
+DROP POLICY IF EXISTS "Owner can insert signed pre-keys" ON signed_pre_keys;
+DROP POLICY IF EXISTS "Owner can delete own signed pre-keys" ON signed_pre_keys;
 CREATE POLICY "Public can read signed pre-keys" ON signed_pre_keys FOR SELECT USING (true);
-CREATE POLICY "Owner can insert signed pre-keys" ON signed_pre_keys FOR INSERT WITH CHECK (true);
-CREATE POLICY "Owner can delete own signed pre-keys" ON signed_pre_keys FOR DELETE USING (true);
+CREATE POLICY "Owner can insert signed pre-keys" ON signed_pre_keys
+  FOR INSERT WITH CHECK (nova_id = auth_nova_id());
+CREATE POLICY "Owner can delete own signed pre-keys" ON signed_pre_keys
+  FOR DELETE USING (nova_id = auth_nova_id());
 
--- One-time pre-keys: readable by anyone, writable by owner, deletable by consumer
+-- One-time pre-keys: readable by anyone, insertable by owner, deletable by consumer (DELETE only)
+DROP POLICY IF EXISTS "Public can read one-time pre-keys" ON one_time_pre_keys;
+DROP POLICY IF EXISTS "Owner can insert one-time pre-keys" ON one_time_pre_keys;
+DROP POLICY IF EXISTS "Anyone can consume one-time pre-keys" ON one_time_pre_keys;
 CREATE POLICY "Public can read one-time pre-keys" ON one_time_pre_keys FOR SELECT USING (true);
-CREATE POLICY "Owner can insert one-time pre-keys" ON one_time_pre_keys FOR INSERT WITH CHECK (true);
+CREATE POLICY "Owner can insert one-time pre-keys" ON one_time_pre_keys
+  FOR INSERT WITH CHECK (nova_id = auth_nova_id());
 CREATE POLICY "Anyone can consume one-time pre-keys" ON one_time_pre_keys FOR DELETE USING (true);
 
 -- Sessions: only visible to participants
+DROP POLICY IF EXISTS "Participants can read sessions" ON crypto_sessions;
+DROP POLICY IF EXISTS "Owner can insert sessions" ON crypto_sessions;
+DROP POLICY IF EXISTS "Participants can update sessions" ON crypto_sessions;
 CREATE POLICY "Participants can read sessions" ON crypto_sessions
-  FOR SELECT USING (sender_nova_id = current_setting('request.headers')::json->>'x-nova-id'
-    OR receiver_nova_id = current_setting('request.headers')::json->>'x-nova-id');
-CREATE POLICY "Owner can insert sessions" ON crypto_sessions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Participants can update sessions" ON crypto_sessions FOR UPDATE USING (true);
+  FOR SELECT USING (
+    sender_nova_id = auth_nova_id()
+    OR receiver_nova_id = auth_nova_id()
+  );
+CREATE POLICY "Owner can insert sessions" ON crypto_sessions
+  FOR INSERT WITH CHECK (sender_nova_id = auth_nova_id());
+CREATE POLICY "Participants can update sessions" ON crypto_sessions
+  FOR UPDATE USING (
+    sender_nova_id = auth_nova_id()
+    OR receiver_nova_id = auth_nova_id()
+  );
 
 -- Add to realtime publication
 ALTER PUBLICATION supabase_realtime ADD TABLE signed_pre_keys;

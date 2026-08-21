@@ -79,6 +79,7 @@ class _IdentityGenerationScreenState extends ConsumerState<IdentityGenerationScr
           await identityService.registerIdentityKey(
             novaId: id,
             identityKeyPublic: publicKey,
+            x25519IdentityKeyPublic: publicKey,
           );
           LoggerService.info('Identity key registered on server', tag: 'Auth');
         }

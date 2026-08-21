@@ -103,7 +103,7 @@ CREATE POLICY "Members can read groups" ON groups
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = groups.id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 
@@ -113,7 +113,7 @@ CREATE POLICY "Members can read group members" ON group_members
     EXISTS (
       SELECT 1 FROM group_members gm
       WHERE gm.group_id = group_members.group_id
-        AND gm.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND gm.nova_id = auth_nova_id()
     )
   );
 
@@ -123,7 +123,7 @@ CREATE POLICY "Members can read group messages" ON group_messages
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = group_messages.group_id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 
@@ -133,7 +133,7 @@ CREATE POLICY "Members can send group messages" ON group_messages
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = group_messages.group_id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 
@@ -143,7 +143,7 @@ CREATE POLICY "Members can read invites" ON group_invites
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = group_invites.group_id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 
@@ -153,7 +153,7 @@ CREATE POLICY "Members can read sender keys" ON group_sender_keys
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = group_sender_keys.group_id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 
@@ -163,7 +163,7 @@ CREATE POLICY "Members can read pinned messages" ON pinned_messages
     EXISTS (
       SELECT 1 FROM group_members
       WHERE group_members.group_id = pinned_messages.group_id
-        AND group_members.nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id'
+        AND group_members.nova_id = auth_nova_id()
     )
   );
 

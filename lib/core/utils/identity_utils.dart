@@ -1,6 +1,5 @@
-import 'dart:convert';
 import 'dart:math';
-import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
 
 class IdentityUtils {
   IdentityUtils._();
@@ -97,16 +96,15 @@ class IdentityUtils {
     return '$prefix${body.substring(0, 4)}-${body.substring(4)}';
   }
 
-  // ===== ACCOUNT ID (deterministic, derived from Nova ID) =====
+  // ===== ACCOUNT ID (independent, CSPRNG UUID v4) =====
 
-  /// Derives a deterministic Account ID (UUID v5-like) from a Nova ID using
-  /// HMAC-SHA256 with a domain-specific key. This is a stable, non-reversible
-  /// mapping so the Account ID cannot be used to recover the Nova ID.
-  static String generateAccountId(String novaId) {
-    final key = utf8.encode('nova-account-id-v1');
-    final hmacResult = Hmac(sha256, key).convert(utf8.encode(novaId));
-    final bytes = hmacResult.bytes;
-    return '${_hexStr(bytes, 0, 4)}-${_hexStr(bytes, 4, 6)}-${_hexStr(bytes, 6, 8)}-${_hexStr(bytes, 8, 10)}-${_hexStr(bytes, 10, 16)}';
+  /// Generates a truly independent Account ID using CSPRNG.
+  /// The Account ID is NOT derived from the Nova ID — it is a separate,
+  /// unlinkable identifier used for internal server-side operations.
+  /// This prevents correlation between a user's public Nova ID and their
+  /// internal account identifier.
+  static String generateAccountId() {
+    return const Uuid().v4();
   }
 
   static String _hexStr(List<int> bytes, int start, int end) {

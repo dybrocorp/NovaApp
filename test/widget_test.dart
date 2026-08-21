@@ -67,16 +67,21 @@ void main() {
   });
 
   group('IdentityUtils.generateAccountId', () {
-    test('produces consistent UUID-like format', () {
-      final a1 = IdentityUtils.generateAccountId('NOVA-TEST1234');
-      final a2 = IdentityUtils.generateAccountId('NOVA-TEST1234');
-      expect(a1, equals(a2));
-      expect(a1, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')));
+    test('produces valid UUID v4 format', () {
+      final a1 = IdentityUtils.generateAccountId();
+      expect(a1, matches(RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
     });
 
-    test('different Nova IDs produce different account IDs', () {
-      final a1 = IdentityUtils.generateAccountId('NOVA-AAA111111');
-      final a2 = IdentityUtils.generateAccountId('NOVA-BBB222222');
+    test('generates unique IDs (CSPRNG)', () {
+      final ids = List.generate(100, (_) => IdentityUtils.generateAccountId());
+      final unique = ids.toSet();
+      expect(unique.length, equals(100));
+    });
+
+    test('two calls produce different account IDs', () {
+      final a1 = IdentityUtils.generateAccountId();
+      final a2 = IdentityUtils.generateAccountId();
       expect(a1, isNot(equals(a2)));
     });
   });

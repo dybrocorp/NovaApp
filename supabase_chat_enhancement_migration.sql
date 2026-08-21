@@ -68,22 +68,29 @@ ALTER TABLE message_reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE typing_indicators ENABLE ROW LEVEL SECURITY;
 
 -- Reactions: readable by chat participants, writable by self
+DROP POLICY IF EXISTS "Participants can read reactions" ON message_reactions;
+DROP POLICY IF EXISTS "Owner can insert reactions" ON message_reactions;
+DROP POLICY IF EXISTS "Owner can delete own reactions" ON message_reactions;
 CREATE POLICY "Participants can read reactions" ON message_reactions
   FOR SELECT USING (true);
 CREATE POLICY "Owner can insert reactions" ON message_reactions
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (nova_id = auth_nova_id());
 CREATE POLICY "Owner can delete own reactions" ON message_reactions
-  FOR DELETE USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
+  FOR DELETE USING (nova_id = auth_nova_id());
 
 -- Typing indicators: readable by chat participants
+DROP POLICY IF EXISTS "Participants can read typing" ON typing_indicators;
+DROP POLICY IF EXISTS "Owner can insert typing" ON typing_indicators;
+DROP POLICY IF EXISTS "Owner can update own typing" ON typing_indicators;
+DROP POLICY IF EXISTS "Owner can delete own typing" ON typing_indicators;
 CREATE POLICY "Participants can read typing" ON typing_indicators
   FOR SELECT USING (true);
 CREATE POLICY "Owner can insert typing" ON typing_indicators
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (nova_id = auth_nova_id());
 CREATE POLICY "Owner can update own typing" ON typing_indicators
-  FOR UPDATE USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
+  FOR UPDATE USING (nova_id = auth_nova_id());
 CREATE POLICY "Owner can delete own typing" ON typing_indicators
-  FOR DELETE USING (nova_id = current_setting('request.jwt.claims', true)::json->>'nova_id');
+  FOR DELETE USING (nova_id = auth_nova_id());
 
 -- ===== DATABASE FUNCTIONS =====
 

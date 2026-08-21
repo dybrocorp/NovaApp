@@ -1,5 +1,3 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:novaapp/core/constants.dart';
@@ -13,50 +11,28 @@ class IdentityService {
 
   IdentityService(this._client);
 
-  // ===== ACCOUNT ID =====
-  // Internal UUID-based ID, never exposed to users.
-  // Derived deterministically from Nova ID for consistency.
-
-  /// Generates a deterministic account ID (UUID v5-like) from a Nova ID.
-  /// This is an internal-only identifier.
-  static String generateAccountId(String novaId) {
-    final bytes = utf8.encode('novaapp-account-$novaId');
-    final digest = md5.convert(bytes);
-    return '${digest.toString().substring(0, 8)}-'
-        '${digest.toString().substring(8, 12)}-'
-        '${digest.toString().substring(12, 16)}-'
-        '${digest.toString().substring(16, 20)}-'
-        '${digest.toString().substring(20, 32)}';
-  }
-
-  // ===== DEVICE ID =====
-
-  /// Generates a unique device ID based on timestamp + random.
-  static String generateDeviceId() {
-    final now = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
-    final random = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-    return 'DEV-$now-$random'.toUpperCase();
-  }
-
   // ===== KEY REGISTRATION =====
 
-  /// Registers the device's identity key (IK) public component with Supabase.
-  /// This is the long-lived key that identifies the account.
+  /// Registers the device's identity keys with Supabase.
+  /// [identityKeyPublic] — Ed25519 public key (for signing verification)
+  /// [x25519IdentityKeyPublic] — X25519 public key (for DH operations)
   Future<bool> registerIdentityKey({
     required String novaId,
     required String identityKeyPublic,
+    required String x25519IdentityKeyPublic,
   }) async {
     if (_client == null) return false;
     try {
       await _client!.from(AppConstants.tableUsers).upsert({
         AppConstants.colNovaId: novaId,
         AppConstants.colPublicKey: identityKeyPublic,
+        'x25519_identity_key': x25519IdentityKeyPublic,
         AppConstants.colUpdatedAt: DateTime.now().toIso8601String(),
       }, onConflict: AppConstants.colNovaId);
-      LoggerService.info('Identity key registered', tag: 'Identity');
+      LoggerService.info('Identity keys registered', tag: 'Identity');
       return true;
     } catch (e) {
-      LoggerService.error('Failed to register identity key', error: e, tag: 'Identity');
+      LoggerService.error('Failed to register identity keys', error: e, tag: 'Identity');
       return false;
     }
   }
@@ -111,20 +87,20 @@ class IdentityService {
   }
 
   /// Fetches the recipient's key bundle for X3DH initialization.
-  /// Returns { identity_key, signed_pre_key, one_time_pre_key (nullable) }
+  /// Returns { x25519_identity_key, signed_pre_key, one_time_pre_key (nullable) }
   Future<Map<String, String>?> fetchKeyBundle(String recipientNovaId) async {
     if (_client == null) return null;
     try {
-      // 1. Get identity key
+      // 1. Get identity keys (Ed25519 for verification, X25519 for DH)
       final profile = await _client!
           .from(AppConstants.tableUsers)
-          .select('public_key')
+          .select('public_key, x25519_identity_key')
           .eq(AppConstants.colNovaId, recipientNovaId)
           .maybeSingle();
 
-      final ik = profile?['public_key'] as String?;
-      if (ik == null || ik.isEmpty) {
-        LoggerService.warning('No identity key for $recipientNovaId', tag: 'Identity');
+      final x25519Ik = profile?['x25519_identity_key'] as String?;
+      if (x25519Ik == null || x25519Ik.isEmpty) {
+        LoggerService.warning('No X25519 identity key for $recipientNovaId', tag: 'Identity');
         return null;
       }
 
@@ -162,7 +138,7 @@ class IdentityService {
       }
 
       return {
-        'identity_key': ik,
+        'x25519_identity_key': x25519Ik,
         'signed_pre_key': spkPublic,
         if (opk != null) 'one_time_pre_key': opk['public_key'] as String,
       };

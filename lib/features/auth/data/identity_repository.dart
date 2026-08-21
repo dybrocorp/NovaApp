@@ -31,18 +31,15 @@ class IdentityRepository {
     await _storage.write(key: AppConstants.keyNovaId, value: id);
   }
 
-  // ===== ACCOUNT ID (internal, derived from Nova ID) =====
+  // ===== ACCOUNT ID (independent, CSPRNG — not derived from Nova ID) =====
 
   Future<String?> getAccountId() async {
     try {
       var accountId = await _storage.read(key: AppConstants.keyAccountId);
       if (accountId == null) {
-        // Derive from Nova ID if not stored yet
-        final novaId = await getId();
-        if (novaId != null) {
-          accountId = IdentityUtils.generateAccountId(novaId);
-          await _storage.write(key: AppConstants.keyAccountId, value: accountId);
-        }
+        // Generate a fresh, independent Account ID (not linked to Nova ID)
+        accountId = IdentityUtils.generateAccountId();
+        await _storage.write(key: AppConstants.keyAccountId, value: accountId);
       }
       return accountId;
     } catch (e) {

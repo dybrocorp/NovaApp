@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS public.users (
   nova_id TEXT UNIQUE, -- Nova ID único del usuario (visible públicamente)
   display_name TEXT, -- Apodo opcional
   avatar_url TEXT,
-  public_key TEXT, -- Clave pública X25519 para E2EE
+  public_key TEXT, -- Clave pública Ed25519 para verificación de firmas
+  x25519_identity_key TEXT, -- Clave pública X25519 para operaciones DH (X3DH)
   fcm_token TEXT, -- Token de Firebase Cloud Messaging para notificaciones push
   privacy_level TEXT DEFAULT 'anyone', -- 'anyone', 'qr_only'
   is_online BOOLEAN DEFAULT false,
@@ -137,27 +138,46 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE call_history ENABLE ROW LEVEL SECURITY;
 
--- Políticas de RLS (CORREGIDAS: solo acceso propio)
+-- Helper function: maps auth.uid() UUID → nova_id TEXT (cached per transaction)
+CREATE OR REPLACE FUNCTION auth_nova_id()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT nova_id FROM public.users WHERE id = auth.uid() LIMIT 1;
+$$;
+
+-- Políticas de RLS (SECURE: UUID matching via helper function)
+-- Users: public readable profile fields (nova_id, display_name, avatar_url, public_key)
+-- Internal fields (fcm_token, email) are protected by restricting SELECT columns in app code
 CREATE POLICY "Permitir lectura pública de usuarios" ON public.users FOR SELECT USING (true);
 CREATE POLICY "Permitir inserción de propio usuario" ON public.users FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Permitir actualización de propio usuario" ON public.users FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Permitir eliminación de propio usuario" ON public.users FOR DELETE USING (auth.uid() = id);
 
--- Messages: solo participantes del chat pueden acceder
-CREATE POLICY "Users can read own sent messages" ON messages FOR SELECT USING (sender_id = auth.uid()::text);
-CREATE POLICY "Users can insert own messages" ON messages FOR INSERT WITH CHECK (sender_id = auth.uid()::text);
-CREATE POLICY "Users can update own message status" ON messages FOR UPDATE USING (sender_id = auth.uid()::text);
+-- Messages: sender_id is TEXT (Nova ID). Map auth.uid() → nova_id via helper.
+CREATE POLICY "Users can read own messages" ON messages FOR SELECT USING (
+  sender_id = auth_nova_id()
+  OR sender_id IN (SELECT contact_id FROM contacts WHERE user_nova_id = auth_nova_id())
+);
+CREATE POLICY "Users can insert own messages" ON messages FOR INSERT WITH CHECK (
+  sender_id = auth_nova_id()
+);
+CREATE POLICY "Users can update own message status" ON messages FOR UPDATE USING (
+  sender_id = auth_nova_id()
+);
 
--- Contacts: solo el propietario puede acceder a sus contactos
-CREATE POLICY "Users can read own contacts" ON contacts FOR SELECT USING (user_nova_id = auth.uid()::text);
-CREATE POLICY "Users can insert own contacts" ON contacts FOR INSERT WITH CHECK (user_nova_id = auth.uid()::text);
-CREATE POLICY "Users can update own contacts" ON contacts FOR UPDATE USING (user_nova_id = auth.uid()::text);
-CREATE POLICY "Users can delete own contacts" ON contacts FOR DELETE USING (user_nova_id = auth.uid()::text);
+-- Contacts: user_nova_id is TEXT (Nova ID). Map auth.uid() → nova_id via helper.
+CREATE POLICY "Users can read own contacts" ON contacts FOR SELECT USING (user_nova_id = auth_nova_id());
+CREATE POLICY "Users can insert own contacts" ON contacts FOR INSERT WITH CHECK (user_nova_id = auth_nova_id());
+CREATE POLICY "Users can update own contacts" ON contacts FOR UPDATE USING (user_nova_id = auth_nova_id());
+CREATE POLICY "Users can delete own contacts" ON contacts FOR DELETE USING (user_nova_id = auth_nova_id());
 
--- Call history: solo el propietario puede acceder a su historial
-CREATE POLICY "Users can read own call history" ON call_history FOR SELECT USING (user_nova_id = auth.uid()::text);
-CREATE POLICY "Users can insert own call history" ON call_history FOR INSERT WITH CHECK (user_nova_id = auth.uid()::text);
-CREATE POLICY "Users can delete own call history" ON call_history FOR DELETE USING (user_nova_id = auth.uid()::text);
+-- Call history: user_nova_id is TEXT (Nova ID). Map auth.uid() → nova_id via helper.
+CREATE POLICY "Users can read own call history" ON call_history FOR SELECT USING (user_nova_id = auth_nova_id());
+CREATE POLICY "Users can insert own call history" ON call_history FOR INSERT WITH CHECK (user_nova_id = auth_nova_id());
+CREATE POLICY "Users can delete own call history" ON call_history FOR DELETE USING (user_nova_id = auth_nova_id());
 
 -- 7. Tabla reports (reportes de usuarios)
 CREATE TABLE IF NOT EXISTS reports (
