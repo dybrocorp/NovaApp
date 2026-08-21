@@ -16,83 +16,89 @@ import 'package:novaapp/core/services/logger_service.dart';
 ///
 /// State is persisted per-conversation for crash recovery.
 
+/// Ratchet state for a single conversation.
+class RatchetState {
+  // Root key (32 bytes)
+  List<int> rootKey;
+  // Sending chain key
+  List<int>? sendingChainKey;
+  // Receiving chain key
+  List<int>? receivingChainKey;
+  // My current ratchet public key (X25519)
+  SimpleKeyPair? myRatchetKeyPair;
+  // Their current ratchet public key
+  SimplePublicKey? theirRatchetPublicKey;
+  // Message counters
+  int sendCount;
+  int receiveCount;
+  int previousSendCount;
+  // Skipped message keys (for out-of-order messages)
+  Map<String, List<int>> skippedMessageKeys;
+
+  RatchetState({
+    required this.rootKey,
+    this.sendingChainKey,
+    this.receivingChainKey,
+    this.myRatchetKeyPair,
+    this.theirRatchetPublicKey,
+    this.sendCount = 0,
+    this.receiveCount = 0,
+    this.previousSendCount = 0,
+    Map<String, List<int>>? skippedMessageKeys,
+  }) : skippedMessageKeys = skippedMessageKeys ?? {};
+
+  /// Serializes state for persistence.
+  Map<String, dynamic> toJson() {
+    return {
+      'root_key': base64Encode(rootKey),
+      'sending_chain_key': sendingChainKey != null
+          ? base64Encode(sendingChainKey!)
+          : null,
+      'receiving_chain_key': receivingChainKey != null
+          ? base64Encode(receivingChainKey!)
+          : null,
+      'their_ratchet_public_key': theirRatchetPublicKey != null
+          ? base64Encode(theirRatchetPublicKey!.bytes)
+          : null,
+      'send_count': sendCount,
+      'receive_count': receiveCount,
+      'previous_send_count': previousSendCount,
+      'skipped_keys': skippedMessageKeys.map(
+        (k, v) => MapEntry(k, base64Encode(v)),
+      ),
+    };
+  }
+
+  /// Deserializes state from persistence.
+  factory RatchetState.fromJson(Map<String, dynamic> json) {
+    return RatchetState(
+      rootKey: base64Decode(json['root_key']),
+      sendingChainKey: json['sending_chain_key'] != null
+          ? base64Decode(json['sending_chain_key'])
+          : null,
+      receivingChainKey: json['receiving_chain_key'] != null
+          ? base64Decode(json['receiving_chain_key'])
+          : null,
+      theirRatchetPublicKey: json['their_ratchet_public_key'] != null
+          ? SimplePublicKey(base64Decode(json['their_ratchet_public_key']),
+              type: KeyPairType.x25519)
+          : null,
+      sendCount: json['send_count'] ?? 0,
+      receiveCount: json['receive_count'] ?? 0,
+      previousSendCount: json['previous_send_count'] ?? 0,
+      skippedMessageKeys: (json['skipped_keys'] as Map<String, dynamic>?)
+              ?.map(
+            (k, v) => MapEntry(k, base64Decode(v as String)),
+          ) ??
+          {},
+    );
+  }
+}
+
 class DoubleRatchetService {
   final _x25519 = X25519();
   final _aesGcm = AesGcm.with256bits();
-  final _hkdf = Hkdf.hmacSha256(outputLength: 32, nonce: Uint8List(32));
-
-  /// Ratchet state for a single conversation.
-  static class RatchetState {
-    // Root key (32 bytes)
-    List<int> rootKey;
-    // Sending chain key
-    List<int>? sendingChainKey;
-    // Receiving chain key
-    List<int>? receivingChainKey;
-    // My current ratchet public key (X25519)
-    SimpleKeyPair? myRatchetKeyPair;
-    // Their current ratchet public key
-    SimplePublicKey? theirRatchetPublicKey;
-    // Message counters
-    int sendCount;
-    int receiveCount;
-    int previousSendCount;
-    // Skipped message keys (for out-of-order messages)
-    Map<String, List<int>> skippedMessageKeys;
-
-    RatchetState({
-      required this.rootKey,
-      this.sendingChainKey,
-      this.receivingChainKey,
-      this.myRatchetKeyPair,
-      this.theirRatchetPublicKey,
-      this.sendCount = 0,
-      this.receiveCount = 0,
-      this.previousSendCount = 0,
-      Map<String, List<int>>? skippedMessageKeys,
-    }) : skippedMessageKeys = skippedMessageKeys ?? {};
-
-    /// Serializes state for persistence.
-    Map<String, dynamic> toJson() {
-      return {
-        'root_key': base64Encode(rootKey),
-        'sending_chain_key': sendingChainKey != null ? base64Encode(sendingChainKey!) : null,
-        'receiving_chain_key': receivingChainKey != null ? base64Encode(receivingChainKey!) : null,
-        'their_ratchet_public_key': theirRatchetPublicKey != null
-            ? base64Encode(theirRatchetPublicKey!.bytes)
-            : null,
-        'send_count': sendCount,
-        'receive_count': receiveCount,
-        'previous_send_count': previousSendCount,
-        'skipped_keys': skippedMessageKeys.map(
-          (k, v) => MapEntry(k, v.map((b) => base64Encode(b)).toList()),
-        ),
-      };
-    }
-
-    /// Deserializes state from persistence.
-    factory RatchetState.fromJson(Map<String, dynamic> json) {
-      return RatchetState(
-        rootKey: base64Decode(json['root_key']),
-        sendingChainKey: json['sending_chain_key'] != null
-            ? base64Decode(json['sending_chain_key'])
-            : null,
-        receivingChainKey: json['receiving_chain_key'] != null
-            ? base64Decode(json['receiving_chain_key'])
-            : null,
-        theirRatchetPublicKey: json['their_ratchet_public_key'] != null
-            ? SimplePublicKey(base64Decode(json['their_ratchet_public_key']),
-                type: KeyPairType.x25519)
-            : null,
-        sendCount: json['send_count'] ?? 0,
-        receiveCount: json['receive_count'] ?? 0,
-        previousSendCount: json['previous_send_count'] ?? 0,
-        skippedMessageKeys: (json['skipped_keys'] as Map<String, dynamic>?)?.map(
-          (k, v) => MapEntry(k, (v as List).map((b) => base64Encode(base64Decode(b))).toList()),
-        ) ?? {},
-      );
-    }
-  }
+  final _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
 
   /// Initializes a new Double Ratchet session after X3DH.
   /// [sharedSecret] — output from X3DH
@@ -108,7 +114,6 @@ class DoubleRatchetService {
 
     // Generate my ratchet key pair
     final myKeyPair = await _x25519.newKeyPair();
-    final myPublicKey = await myKeyPair.extractPublicKey();
 
     // Initialize root key from shared secret
     final rootKey = sharedSecret;
@@ -150,7 +155,6 @@ class DoubleRatchetService {
 
     // Encrypt with AES-256-GCM
     final nonce = Uint8List(12);
-    final rng = await AesGcm.with256bits();
     final secretBox = await _aesGcm.encrypt(
       utf8.encode(plaintext),
       secretKey: SecretKey(messageKey),
@@ -159,7 +163,8 @@ class DoubleRatchetService {
 
     // Get my current ratchet public key
     final myPublicKey = await state.myRatchetKeyPair?.extractPublicKey();
-    final ratchetPubKey = myPublicKey != null ? base64Encode(myPublicKey.bytes) : '';
+    final ratchetPubKey =
+        myPublicKey != null ? base64Encode(myPublicKey.bytes) : '';
 
     final result = {
       'ciphertext': base64Encode(secretBox.cipherText),
@@ -187,40 +192,50 @@ class DoubleRatchetService {
     final nonce = base64Decode(encrypted['nonce']);
     final mac = base64Decode(encrypted['mac']);
     final messageNumber = encrypted['message_number'] as int;
-    final previousChainLength = encrypted['previous_chain_length'] as int;
-    final theirRatchetPubKey = encrypted['ratchet_public_key'] as String;
+    final previousChainLength =
+        encrypted['previous_chain_length'] as int;
+    final theirRatchetPubKey =
+        encrypted['ratchet_public_key'] as String;
 
     // Check if this is a new ratchet step
     if (theirRatchetPubKey.isNotEmpty &&
         (state.theirRatchetPublicKey == null ||
-            base64Encode(state.theirRatchetPublicKey!.bytes) != theirRatchetPubKey)) {
+            base64Encode(state.theirRatchetPublicKey!.bytes) !=
+                theirRatchetPubKey)) {
       // New ratchet key — perform DH ratchet step
       await _dhRatchetStep(state, theirRatchetPubKey);
     }
 
     // Try skipped message keys first (for out-of-order messages)
-    final skipKey = '$messageNumber-${base64Encode(state.theirRatchetPublicKey?.bytes ?? [])}';
+    final skipKey =
+        '$messageNumber-${base64Encode(state.theirRatchetPublicKey?.bytes ?? [])}';
     if (state.skippedMessageKeys.containsKey(skipKey)) {
       final messageKey = state.skippedMessageKeys.remove(skipKey)!;
-      final plaintext = await _decryptWithKey(messageKey, nonce, ciphertext, mac);
+      final plaintext =
+          await _decryptWithKey(messageKey, nonce, ciphertext, mac);
       return plaintext;
     }
 
     // Advance receiving chain to get the correct message key
     while (state.receiveCount < messageNumber) {
-      final skippedKey = await _deriveMessageKey(state.receivingChainKey!);
-      final skipKeyEntry = '$receiveCount-${base64Encode(state.theirRatchetPublicKey?.bytes ?? [])}';
+      final skippedKey =
+          await _deriveMessageKey(state.receivingChainKey!);
+      final skipKeyEntry =
+          '${state.receiveCount}-${base64Encode(state.theirRatchetPublicKey?.bytes ?? [])}';
       state.skippedMessageKeys[skipKeyEntry] = skippedKey;
-      state.receivingChainKey = await _advanceChainKey(state.receivingChainKey!);
+      state.receivingChainKey =
+          await _advanceChainKey(state.receivingChainKey!);
       state.receiveCount++;
     }
 
     // Decrypt the message
     final messageKey = await _deriveMessageKey(state.receivingChainKey!);
-    state.receivingChainKey = await _advanceChainKey(state.receivingChainKey!);
+    state.receivingChainKey =
+        await _advanceChainKey(state.receivingChainKey!);
     state.receiveCount++;
 
-    final plaintext = await _decryptWithKey(messageKey, nonce, ciphertext, mac);
+    final plaintext =
+        await _decryptWithKey(messageKey, nonce, ciphertext, mac);
     return plaintext;
   }
 
@@ -242,22 +257,22 @@ class DoubleRatchetService {
     List<int> ciphertext,
     List<int> mac,
   ) async {
-    final secretBox = SecretBox(ciphertext, nonce: nonce, mac: Mac(mac));
-    final plaintext = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(messageKey));
+    final secretBox =
+        SecretBox(ciphertext, nonce: nonce, mac: Mac(mac));
+    final plaintext = await _aesGcm.decrypt(secretBox,
+        secretKey: SecretKey(messageKey));
     return utf8.decode(plaintext);
   }
 
-  Future<void> _dhRatchetStep(RatchetState state, String theirNewPubKeyBase64) async {
+  Future<void> _dhRatchetStep(
+      RatchetState state, String theirNewPubKeyBase64) async {
     final theirNewKey = SimplePublicKey(
       base64Decode(theirNewPubKeyBase64),
       type: KeyPairType.x25519,
     );
 
-    // Skip receiving chain (already advanced)
-
     // Generate new ratchet key pair
     final newKeyPair = await _x25519.newKeyPair();
-    final newPublicKey = await newKeyPair.extractPublicKey();
 
     // DH with new keys
     final dhOutput = await _x25519.sharedSecretKey(

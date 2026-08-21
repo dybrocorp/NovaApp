@@ -48,10 +48,10 @@ class VoiceNoteService {
   double _playbackSpeed = 1.0;
   double get playbackSpeed => _playbackSpeed;
   String? _currentPlayingPath;
-  Timer? _playbackTimer;
+  StreamSubscription<PlaybackDisposition>? _playbackSubscription;
 
   // Amplitude subscription
-  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  StreamSubscription<RecordingDisposition>? _amplitudeSubscription;
 
   // ===== INITIALIZATION =====
 
@@ -69,7 +69,7 @@ class VoiceNoteService {
 
   Future<void> dispose() async {
     _durationTimer?.cancel();
-    _playbackTimer?.cancel();
+    _playbackSubscription?.cancel();
     _amplitudeSubscription?.cancel();
     if (_isRecorderInitialized) await _recorder.closeRecorder();
     if (_isPlayerInitialized) await _player.closePlayer();
@@ -94,8 +94,9 @@ class VoiceNoteService {
     );
 
     // Listen to amplitude for waveform
-    _amplitudeSubscription = _recorder.onProgress?.listen((amplitude) {
-      final normalized = (amplitude.currentDB + 60) / 60; // Normalize -60dB to 0dB range
+    _amplitudeSubscription = _recorder.onProgress?.listen((disposition) {
+      final db = disposition.decibels ?? 0;
+      final normalized = (db + 60) / 60; // Normalize -60dB to 0dB range
       final clamped = normalized.clamp(0.0, 1.0);
       _waveformData.add(clamped);
     });
@@ -139,7 +140,8 @@ class VoiceNoteService {
     final path = await _recorder.stopRecorder();
     _recordState = VoiceRecordState.stopped;
 
-    LoggerService.info('Recording stopped: $path (${_recordDuration.inSeconds}s)', tag: 'VoiceNote');
+    LoggerService.info('Recording stopped: $path (${_recordDuration.inSeconds}s)',
+        tag: 'VoiceNote');
     return path;
   }
 
@@ -164,13 +166,16 @@ class VoiceNoteService {
   // ===== PLAYBACK =====
 
   /// Plays a voice note file.
-  Future<void> playVoiceNote(String filePath, {VoidCallback? onCompletion}) async {
+  Future<void> playVoiceNote(String filePath,
+      {void Function()? onCompletion}) async {
     if (!_isPlayerInitialized) await initialize();
 
     if (_isPlaying) await stopPlayback();
 
     _currentPlayingPath = filePath;
     _playbackSpeed = 1.0;
+    _playbackPosition = Duration.zero;
+    _playbackDuration = Duration.zero;
 
     await _player.startPlayer(
       fromURI: filePath,
@@ -178,19 +183,15 @@ class VoiceNoteService {
       whenFinished: () {
         _isPlaying = false;
         _playbackPosition = Duration.zero;
-        _playbackTimer?.cancel();
+        _playbackSubscription?.cancel();
         onCompletion?.call();
       },
     );
 
-    // Get duration
-    final duration = await _player.getDuration();
-    _playbackDuration = Duration(milliseconds: duration ?? 0);
-
-    // Track position
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
-      final position = await _player.getCurrentPosition();
-      _playbackPosition = Duration(milliseconds: position ?? 0);
+    // Track position and duration via onProgress stream
+    _playbackSubscription = _player.onProgress?.listen((disposition) {
+      _playbackPosition = disposition.position;
+      _playbackDuration = disposition.duration;
     });
 
     _isPlaying = true;
@@ -199,7 +200,7 @@ class VoiceNoteService {
 
   /// Stops playback.
   Future<void> stopPlayback() async {
-    _playbackTimer?.cancel();
+    _playbackSubscription?.cancel();
     await _player.stopPlayer();
     _isPlaying = false;
     _playbackPosition = Duration.zero;
@@ -208,7 +209,7 @@ class VoiceNoteService {
 
   /// Seeks to a specific position.
   Future<void> seekTo(Duration position) async {
-    await _player.seekToPlayer(position.inMilliseconds);
+    await _player.seekToPlayer(position);
     _playbackPosition = position;
   }
 
@@ -242,13 +243,13 @@ class VoiceNoteService {
 
   /// Formats duration as mm:ss.
   static String formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final minutes =
+        duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds =
+        duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
   }
 }
-
-typedef VoidCallback = void Function();
 
 final voiceNoteServiceProvider = Provider<VoiceNoteService>((ref) {
   final service = VoiceNoteService();

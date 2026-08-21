@@ -49,7 +49,7 @@ class OptimizationService {
 
   /// Configures the image cache with optimal settings.
   static void configureImageCache() {
-    CachedNetworkImage.logLevel = CacheManagerLogger.none;
+    CachedNetworkImage.logLevel = CacheManagerLogLevel.none;
 
     // Set cache limits
     DefaultCacheManager().emptyCache();

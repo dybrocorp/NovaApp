@@ -47,11 +47,9 @@ class BiometricService {
     try {
       final result = await _auth.authenticate(
         localizedReason: reason,
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false, // Allow fallback to PIN
-          useErrorDialogs: true,
-        ),
+        biometricOnly: false, // Allow fallback to PIN
+        sensitiveTransaction: true,
+        persistAcrossBackgrounding: true,
       );
       if (result) {
         LoggerService.info('Biometric auth succeeded', tag: 'Biometric');

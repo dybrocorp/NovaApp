@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:novaapp/core/services/logger_service.dart';
@@ -15,24 +16,25 @@ import 'package:novaapp/core/services/logger_service.dart';
 /// This provides efficient group encryption (single encrypt per message)
 /// with forward secrecy on member changes.
 
+/// Represents a group's encryption state.
+class GroupKeyState {
+  final String groupId;
+  final List<int> senderKey; // 32-byte group key
+  final int keyVersion; // Incremented on key rotation
+  final Map<String, List<int>> memberKeys; // Per-member encrypted sender key
+
+  GroupKeyState({
+    required this.groupId,
+    required this.senderKey,
+    this.keyVersion = 0,
+    Map<String, List<int>>? memberKeys,
+  }) : memberKeys = memberKeys ?? {};
+}
+
 class GroupEncryptionService {
   final _x25519 = X25519();
   final _aesGcm = AesGcm.with256bits();
-
-  /// Represents a group's encryption state.
-  static class GroupKeyState {
-    final String groupId;
-    final List<int> senderKey; // 32-byte group key
-    final int keyVersion; // Incremented on key rotation
-    final Map<String, List<int>> memberKeys; // Per-member encrypted sender key
-
-    GroupKeyState({
-      required this.groupId,
-      required this.senderKey,
-      this.keyVersion = 0,
-      Map<String, List<int>>? memberKeys,
-    }) : memberKeys = memberKeys ?? {};
-  }
+  final _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
 
   /// Generates a new Sender Key for a group.
   /// Returns the key state that should be distributed to all members.
@@ -40,11 +42,12 @@ class GroupEncryptionService {
     required String groupId,
     required List<String> memberNovaIds,
   }) async {
-    // Generate random 32-byte sender key
-    final rng = await AesGcm.with256bits();
-    final senderKey = List<int>.generate(32, (_) => DateTime.now().microsecondsSinceEpoch & 0xFF);
+    // Generate random 32-byte sender key using secure random
+    final rng = Random.secure();
+    final senderKey = List<int>.generate(32, (_) => rng.nextInt(256));
 
-    LoggerService.info('Sender Key generated for group: $groupId', tag: 'GroupCrypto');
+    LoggerService.info('Sender Key generated for group: $groupId',
+        tag: 'GroupCrypto');
 
     return GroupKeyState(
       groupId: groupId,
@@ -59,7 +62,7 @@ class GroupEncryptionService {
     required GroupKeyState keyState,
     required String plaintext,
   }) async {
-    final nonce = List<int>.generate(12, (_) => DateTime.now().microsecondsSinceEpoch & 0xFF);
+    final nonce = _aesGcm.newNonce();
 
     final secretBox = await _aesGcm.encrypt(
       utf8.encode(plaintext),
@@ -85,7 +88,8 @@ class GroupEncryptionService {
     final mac = base64Decode(encrypted['mac']);
 
     final secretBox = SecretBox(ciphertext, nonce: nonce, mac: Mac(mac));
-    final plaintext = await _aesGcm.decrypt(secretBox, secretKey: SecretKey(keyState.senderKey));
+    final plaintext = await _aesGcm.decrypt(secretBox,
+        secretKey: SecretKey(keyState.senderKey));
 
     return utf8.decode(plaintext);
   }
@@ -95,7 +99,8 @@ class GroupEncryptionService {
   Future<GroupKeyState> rotateKey({
     required GroupKeyState currentKeyState,
   }) async {
-    final newSenderKey = List<int>.generate(32, (_) => DateTime.now().microsecondsSinceEpoch & 0xFF);
+    final rng = Random.secure();
+    final newSenderKey = List<int>.generate(32, (_) => rng.nextInt(256));
 
     LoggerService.info(
       'Sender Key rotated: ${currentKeyState.groupId} v${currentKeyState.keyVersion + 1}',
@@ -131,10 +136,9 @@ class GroupEncryptionService {
     );
     final secretBytes = await sharedSecret.extractBytes();
 
-    // Derive encryption key from shared secret
-    final derived = await _aesGcm.getKeyFromPassword(
-      password: secretBytes,
-      nonce: List<int>.generate(12, (_) => 0),
+    // Derive encryption key from shared secret using HKDF
+    final derived = await _hkdf.deriveKey(
+      secretKey: SecretKey(secretBytes),
     );
 
     // Encrypt sender key
@@ -144,7 +148,11 @@ class GroupEncryptionService {
     );
 
     // Return: ephemeral public key + encrypted sender key
-    return [...ephemeralPublic.bytes, ...encrypted.cipherText, ...encrypted.mac.bytes];
+    return [
+      ...ephemeralPublic.bytes,
+      ...encrypted.cipherText,
+      ...encrypted.mac.bytes,
+    ];
   }
 
   /// Decrypts the Sender Key received from the group.
@@ -156,7 +164,8 @@ class GroupEncryptionService {
     final ephemeralPublicBytes = encryptedKeyBundle.sublist(0, 32);
     final encryptedData = encryptedKeyBundle.sublist(32);
 
-    final ephemeralPublic = SimplePublicKey(ephemeralPublicBytes, type: KeyPairType.x25519);
+    final ephemeralPublic =
+        SimplePublicKey(ephemeralPublicBytes, type: KeyPairType.x25519);
 
     // DH with my identity key
     final sharedSecret = await _x25519.sharedSecretKey(
@@ -165,15 +174,15 @@ class GroupEncryptionService {
     );
     final secretBytes = await sharedSecret.extractBytes();
 
-    // Derive decryption key
-    final derived = await _aesGcm.getKeyFromPassword(
-      password: secretBytes,
-      nonce: List<int>.generate(12, (_) => 0),
+    // Derive decryption key using HKDF
+    final derived = await _hkdf.deriveKey(
+      secretKey: SecretKey(secretBytes),
     );
 
     // Decrypt sender key
     final nonce = encryptedData.sublist(encryptedData.length - 12);
-    final mac = encryptedData.sublist(encryptedData.length - 24, encryptedData.length - 12);
+    final mac = encryptedData.sublist(
+        encryptedData.length - 24, encryptedData.length - 12);
     final ciphertext = encryptedData.sublist(0, encryptedData.length - 24);
 
     final secretBox = SecretBox(ciphertext, nonce: nonce, mac: Mac(mac));
@@ -183,4 +192,5 @@ class GroupEncryptionService {
   }
 }
 
-final groupEncryptionServiceProvider = Provider((ref) => GroupEncryptionService());
+final groupEncryptionServiceProvider =
+    Provider((ref) => GroupEncryptionService());

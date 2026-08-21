@@ -97,7 +97,7 @@ class ReactionService {
       final result = await _client!
           .from('message_reactions')
           .select('message_id, nova_id, emoji')
-          .in_('message_id', messageIds);
+          .inFilter('message_id', messageIds);
 
       final reactions = <String, Map<String, List<String>>>{};
       for (final row in result) {

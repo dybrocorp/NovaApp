@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:math';
+import 'package:crypto/crypto.dart';
 
 class IdentityUtils {
   IdentityUtils._();
@@ -93,5 +95,34 @@ class IdentityUtils {
     final body = novaId.substring(prefix.length);
     if (body.length <= 4) return '$prefix$body';
     return '$prefix${body.substring(0, 4)}-${body.substring(4)}';
+  }
+
+  // ===== ACCOUNT ID (deterministic, derived from Nova ID) =====
+
+  /// Derives a deterministic Account ID (UUID v5-like) from a Nova ID using
+  /// HMAC-SHA256 with a domain-specific key. This is a stable, non-reversible
+  /// mapping so the Account ID cannot be used to recover the Nova ID.
+  static String generateAccountId(String novaId) {
+    final key = utf8.encode('nova-account-id-v1');
+    final hmacResult = Hmac(sha256, key).convert(utf8.encode(novaId));
+    final bytes = hmacResult.bytes;
+    return '${_hexStr(bytes, 0, 4)}-${_hexStr(bytes, 4, 6)}-${_hexStr(bytes, 6, 8)}-${_hexStr(bytes, 8, 10)}-${_hexStr(bytes, 10, 16)}';
+  }
+
+  static String _hexStr(List<int> bytes, int start, int end) {
+    final sb = StringBuffer();
+    for (var i = start; i < end; i++) {
+      sb.write(bytes[i].toRadixString(16).padLeft(2, '0'));
+    }
+    return sb.toString();
+  }
+
+  // ===== DEVICE ID (cryptographic random) =====
+
+  /// Generates a unique Device ID using cryptographic randomness.
+  static String generateDeviceId() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    return '${_hexStr(bytes, 0, 4)}-${_hexStr(bytes, 4, 6)}-${_hexStr(bytes, 6, 8)}-${_hexStr(bytes, 8, 10)}-${_hexStr(bytes, 10, 16)}';
   }
 }

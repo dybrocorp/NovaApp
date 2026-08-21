@@ -61,6 +61,8 @@ class ConnectivityService {
         return ConnectivityState.online;
       case ConnectivityResult.none:
         return ConnectivityState.offline;
+      case ConnectivityResult.satellite:
+        return ConnectivityState.online;
     }
   }
 

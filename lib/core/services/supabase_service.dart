@@ -36,7 +36,7 @@ class SupabaseService {
   Future<T?> _withTableFallback<T>(
     String primaryTable,
     String fallbackTable,
-    Future<T> Function(PostgrestFilterBuilder<dynamic>) operation, {
+    Future<T> Function(SupabaseQueryBuilder) operation, {
     String? logContext,
   }) async {
     final c = client;

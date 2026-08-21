@@ -110,19 +110,19 @@ class VoiceCallService {
         'status': 'ended',
         'ended_at': DateTime.now().toIso8601String(),
         'ended_by': endedBy,
-      }).eq('id', _currentCallId);
+      }).eq('id', _currentCallId!);
 
       // Calculate duration
       final call = await _client!.from('calls')
           .select('started_at, connected_at')
-          .eq('id', _currentCallId)
+          .eq('id', _currentCallId!)
           .maybeSingle();
 
       int? duration;
       if (call != null && call['connected_at'] != null) {
         final connected = DateTime.parse(call['connected_at']);
         duration = DateTime.now().difference(connected).inSeconds;
-        await _client!.from('calls').update({'duration': duration}).eq('id', _currentCallId);
+        await _client!.from('calls').update({'duration': duration}).eq('id', _currentCallId!);
       }
 
       _reconnectTimer?.cancel();

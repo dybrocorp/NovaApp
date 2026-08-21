@@ -30,21 +30,9 @@ class TypingIndicatorService {
     _typingChannel = _client!.channel('typing:$chatId')
         .onBroadcast(
           event: 'typing',
-          payload: {'user_id': myNovaId, 'is_typing': true},
           callback: (payload) {
             final userId = payload['user_id'] as String?;
             final isTyping = payload['is_typing'] as bool? ?? false;
-            if (userId != null && userId != myNovaId) {
-              onTypingChanged(userId, isTyping);
-            }
-          },
-        )
-        .onBroadcast(
-          event: 'typing',
-          payload: {'user_id': myNovaId, 'is_typing': false},
-          callback: (payload) {
-            final userId = payload['user_id'] as String?;
-            final isTyping = payload['is_typing'] as bool? ?? true;
             if (userId != null && userId != myNovaId) {
               onTypingChanged(userId, isTyping);
             }

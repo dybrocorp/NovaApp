@@ -100,14 +100,10 @@ class AuthService {
       final token = result['token'] as String;
       final refreshToken = result['refresh_token'] as String?;
 
-      // Set session
-      await _client!.auth.setSession(Session(
-        accessToken: token,
-        refreshToken: refreshToken ?? '',
-        expiresIn: 3600,
-        tokenType: 'bearer',
-        expiresAt: DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
-      ));
+      // Set session using refresh token + access token
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await _client!.auth.setSession(refreshToken, accessToken: token);
+      }
 
       LoggerService.info('Challenge-response auth successful', tag: 'Auth');
       return token;
@@ -197,7 +193,13 @@ class AuthService {
   /// PBKDF2 key derivation (for PIN hashing).
   static List<int> _pbkdf2(String password, String salt, int iterations, int keyLength) {
     final passwordBytes = utf8.encode(password);
-    final saltBytes = base64Decode(salt);
+    // Accept both base64-encoded and raw string salts
+    List<int> saltBytes;
+    try {
+      saltBytes = base64Decode(salt);
+    } catch (_) {
+      saltBytes = utf8.encode(salt);
+    }
 
     final hmacSha256 = Hmac(sha256, passwordBytes);
     final blockCount = (keyLength / 32).ceil();

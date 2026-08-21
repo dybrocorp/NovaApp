@@ -27,6 +27,11 @@ class MessageStatusService {
   final SupabaseClient? _client;
   RealtimeChannel? _statusChannel;
 
+  /// Map from status name string to enum value.
+  static final Map<String, MessageStatus> _statusByName = {
+    for (final s in MessageStatus.values) s.name: s,
+  };
+
   MessageStatusService(this._client);
 
   /// Updates the status of a message on the server.
@@ -69,7 +74,7 @@ class MessageStatusService {
       await _client!.from('messages').update({
         'status': MessageStatus.delivered.name,
       }).eq('id', messageId)
-        .in_('status', [MessageStatus.sent.name]);
+        .inFilter('status', [MessageStatus.sent.name]);
     } catch (_) {}
   }
 
@@ -96,7 +101,7 @@ class MessageStatusService {
             final messageId = newRecord['id'] as String?;
             final statusStr = newRecord['status'] as String?;
             if (messageId != null && statusStr != null) {
-              final status = MessageStatus.values.asNameMaps[statusStr];
+              final status = _statusByName[statusStr];
               if (status != null) {
                 onStatusChanged(messageId, status);
               }
@@ -121,11 +126,11 @@ class MessageStatusService {
       final result = await _client!
           .from('messages')
           .select('id, status')
-          .in_('id', messageIds);
+          .inFilter('id', messageIds);
 
       return {
         for (final row in result)
-          row['id'] as String: MessageStatus.values.asNameMaps[row['status'] as String] ?? MessageStatus.sent,
+          row['id'] as String: _statusByName[row['status'] as String] ?? MessageStatus.sent,
       };
     } catch (_) {
       return {};
