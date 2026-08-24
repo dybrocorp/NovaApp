@@ -1,6 +1,17 @@
 // FASE 0.5 — PASO 3 — Validación Criptográfica Profunda
 // Tests de la autenticación challenge-response del WebSocket (Socket.IO).
 //
+// ACTUALIZACIÓN PASO 4 (hardening del transporte): el protocolo v1 DEFINITIVO
+// ya NO envía public_key en auth.response (el servidor verifica contra la
+// clave REGISTRADA) y la firma cubre el mensaje canónico
+// NOVA_AUTH_v1|account|device|nova|challenge_id|challenge.
+// El protocolo completo y sus tests viven ahora en:
+//   - lib/core/socket/ (implementación + especificación ejecutable)
+//   - test/socket/ (handshake, anti-replay, sesiones, revocación, etc.)
+//   - docs/SOCKET_SECURITY.md
+// Este archivo se conserva como sanity-check criptográfico base de
+// firmar/verificar con Ed25519 (sigue siendo válido para eso).
+//
 // ALCANCE: el repositorio contiene SOLO el cliente (websocket_service.dart).
 // NO existe código del servidor Socket.IO en el repo, por lo que la
 // verificación del lado servidor NO puede probarse aquí y queda documentada
