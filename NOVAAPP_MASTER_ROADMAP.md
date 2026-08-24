@@ -1291,5 +1291,18 @@ NovaApp tiene una base arquitectonica razonable con Riverpod, Supabase y una est
 
 ---
 
+## Anexo: progreso FASE 0.5 (capa realtime)
+
+- **PASO 4** — Hardening del cliente Socket.IO/WebSocket + especificación
+  ejecutable del protocolo (`lib/core/socket/`, docs/SOCKET_*.md).
+- **PASO 5** — **Servidor Socket.IO real** (Node 20/TS) en `server/`:
+  handshake Ed25519, sesiones/revocación, `message.*` idempotentes con
+  `server_seq`, sync, presencia privada, signaling, rate limits,
+  `/healthz` + admin API, Docker. **E2E 40/40** (`cd server && npm test`).
+  Pendiente (PASO 6): adapter Redis multi-nodo + validación contra el app
+  real.
+
+---
+
 **Documento generado durante la FASE 0 de auditoria.**
 **Proximo paso: Corregir las 7 vulnerabilidades criticas antes de continuar.**

@@ -1,0 +1,33 @@
+# Local development stack (docs/SOCKET_SERVER_ARCHITECTURE.md §11.1).
+#
+#   server   — NovaApp realtime server (Socket.IO, WebSocket-only)
+#   redis    — reserved for PASO 6 (multi-node adapter: shared challenges,
+#              sessions, dedup, cursors — see §4/§8). Not yet required by
+#              the single-node memory store; started here so local
+#              development mirrors the production topology early.
+#
+# Usage: docker compose up --build
+# Health: http://localhost:4000/healthz
+services:
+  server:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      # STORE_BACKEND: supabase requires SUPABASE_URL +
+      # SUPABASE_SERVICE_ROLE_KEY (see .env.example / sql/realtime_schema.sql).
+      STORE_BACKEND: memory
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # PASO 6 will point the server here (REDIS_URL) for the multi-node
+    # adapter. Kept in the stack now so the topology is exercised early.
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
