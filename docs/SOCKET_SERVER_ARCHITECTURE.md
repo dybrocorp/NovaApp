@@ -1,29 +1,53 @@
-# SOCKET_SERVER_ARCHITECTURE.md — FASE 0.5 — PASO 4
+# SOCKET_SERVER_ARCHITECTURE.md — FASE 0.5 — PASO 5
 
 Arquitectura del **Realtime Server** de NovaApp.
 
-Fecha: 2026-08-24
+Fecha: 2026-08-24 (PASO 4) · 2026-08-24 (PASO 5)
 
 ---
 
-## 0. Resultado de la auditoría (importante)
+## 0. Estado del servidor (PASO 5)
 
-**El repositorio NO contiene ningún servidor Socket.IO.** Se buscó en todo
-el árbol (`server/`, `realtime/`, `node/`, scripts, package.json): solo
-existe el cliente Flutter (`lib/core/services/websocket_service.dart`,
-ahora endurecido, y `lib/core/socket/`). NO se inventa infraestructura: no
-hay código de servidor ejecutable en este repo.
+**El servidor EXISTE y está implementado** en `server/` (Node.js 20+ /
+TypeScript / Socket.IO 4). Es el puerto fiel de las especificaciones
+ejecutables de `lib/core/socket/` (PASO 4) y valida contra ellas:
 
-Lo que SÍ existe tras este paso:
+- Handshake criptográfico completo (`server/src/protocol/handshake_engine.ts`
+  ↔ `handshake_engine.dart`), con `AUTH_FAILED` genérico en el cable.
+- Sesiones (una viva por dispositivo, TTL deslizante, revocación por
+  sesión y por dispositivo con fan-out `device.revoked`).
+- `message.*` idempotentes (dedup por `message_id`, ack original en el
+  reintento), `server_seq` por conversación, fan-out por membresía,
+  receipts `delivered`/`read`.
+- `sync.request/response` (replay del log de eventos por cursor).
+- Presencia con audiencia privada; signaling de llamadas (relay +
+  anti-spoof de identidad).
+- Rate limits de servidor (token bucket por dominio + lockout de auth por
+  dispositivo e IP) y límite de conexiones nuevas por IP.
+- `/healthz` + API admin protegible por `ADMIN_TOKEN` (equivalente local
+  del webhook de revocación); `Dockerfile` + `docker-compose.yml`.
+- **E2E: 40/40** (`server/test/e2e_*.test.ts`, WebSockets reales en
+  loopback con firmas Ed25519 reales). Ejecutar: `cd server && npm test`.
 
-- Cliente endurecido y testeado.
-- **Especificación ejecutable del protocolo** en
-  `lib/core/socket/protocol/` (challenge store, registro de dispositivos,
-  registro de sesiones, dedup, autorización, motor de handshake). Es el
-  blueprint con el que el servidor real debe ser construido, y contra el
-  que el cliente ya se valida en tests.
+Pendiente para PASO 6 (multi-nodo): adapter Redis (challenges/sesiones/
+dedup/cursors compartidos), caché de autorización 30 s, redis-emitter,
+prueba de conmutación wifi↔móvil contra el app real. El backend de
+directorio Supabase (PostgREST, service role) está cableado
+(`server/src/directory/supabase_directory.ts`); el almacén caliente por
+defecto es en memoria (un nodo).
 
-Este documento define exactamente cómo construir ese servidor.
+## 0.bis. Resultado de la auditoría original (PASO 4)
+
+**El repositorio NO contenía ningún servidor Socket.IO** al cerrarse el
+PASO 4. Se buscó en todo el árbol (`server/`, `realtime/`, `node/`,
+scripts, package.json): solo existía el cliente Flutter
+(`lib/core/services/websocket_service.dart`, entonces endurecido, y
+`lib/core/socket/`). NO se inventó infraestructura: no había código de
+servidor ejecutable en ese momento, y la especificación ejecutable del
+protocolo en `lib/core/socket/protocol/` (challenge store, registro de
+dispositivos, registro de sesiones, dedup, autorización, motor de
+handshake) quedó como blueprint con el que el servidor real debía
+construirse. PASO 5 lo construyó contra ese blueprint.
 
 ## 1. Tecnología recomendada
 
@@ -169,15 +193,23 @@ signaling/min, 6 sync/min, 120 total/min) + por-IP para conexiones nuevas
 6. CI: portar los tests de `lib/core/socket/protocol/` a TS (mismos
    casos) + tests de carga (artillery/socket.io benchmark).
 
-## 11. Plan de construcción (cuando se apruebe)
+## 11. Plan de construcción — ejecutado en PASO 5 (§0)
 
-1. Esqueleto Node+TS + Docker compose (server + redis) local.
-2. Handshake completo (port del `HandshakeEngine`) + tests paridad con Dart.
-3. Sesiones + revocación + rooms de device.
-4. `message.*` con dedup + seq + persistencia Supabase.
-5. sync + presencia + signaling (solo relay, con autorización).
-6. Redis adapter + segunda réplica + prueba de conmutación wifi↔móvil real
-   contra el app.
+1. ✅ Esqueleto Node+TS + Docker compose (server + redis) local
+   (`server/`).
+2. ✅ Handshake completo (port del `HandshakeEngine`) + tests paridad con
+   Dart (`server/test/e2e_handshake.test.ts`).
+3. ✅ Sesiones + revocación + rooms de device
+   (`server/test/e2e_sessions_devices.test.ts`).
+4. ✅ `message.*` con dedup + seq + persistencia (directorio/almacén
+   Supabase cableado; memoria por defecto)
+   (`server/test/e2e_messaging.test.ts`).
+5. ✅ sync + presencia + signaling (solo relay, con autorización)
+   (`server/test/e2e_sync.test.ts`, `server/test/e2e_presence_calls.test.ts`).
+6. ⏳ Redis adapter + segunda réplica + prueba de conmutación wifi↔móvil
+   real contra el app — **PASO 6**.
 
-Hasta entonces: el estado del servidor es **PENDIENTE**; nada en este
-directorio debe presentarse como "servidor implementado".
+El estado del servidor ya no es PENDIENTE: ver §0. Lo que NO existe
+todavía (y no debe presentarse como existente): despliegue multi-nodo,
+adapter Redis, caché de autorización, redis-emitter y validación contra
+el app Flutter real (requiere dispositivo/backend desplegado).
