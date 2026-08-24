@@ -47,6 +47,7 @@ import {
   type StoredMessage,
 } from './store/realtime_store.js';
 import { AuthFailureTracker } from './auth_failure_tracker.js';
+import { SecurityLog, type LogSink } from './logger.js';
 
 export interface SocketData {
   session?: RegisteredSession;
@@ -60,6 +61,8 @@ export interface RealtimeServerOptions {
   directory?: Directory;
   store?: RealtimeStore;
   clock?: () => number;
+  /** Redacted log sink (tests capture it to assert no secrets leak). */
+  logSink?: LogSink;
 }
 
 /** Plaintext-ish keys rejected on the send path (parity with the client). */
@@ -100,6 +103,7 @@ export class RealtimeServer {
   readonly dedup = new MessageDedup();
   readonly authz: AuthorizationPolicy;
   readonly authFailures: AuthFailureTracker;
+  readonly log: SecurityLog;
 
   private readonly clock: () => number;
   private readonly httpServer: HttpServer;
@@ -130,6 +134,7 @@ export class RealtimeServer {
       lockoutMs: this.config.authLockoutMs,
       clock: this.clock,
     });
+    this.log = new SecurityLog({ sink: options.logSink });
 
     this.httpServer = createServer();
     this.io = new SocketIoServer(this.httpServer, {
@@ -280,9 +285,57 @@ export class RealtimeServer {
       void this.onCallSignal(socket, SocketEvent.callEnd, payload);
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason: string) => {
       this.socketLimiters.delete(socket.id);
+      void this.onDisconnect(socket, reason);
     });
+  }
+
+  /**
+   * Disconnect cleanup: drop the session bound to this socket and, when
+   * the account has no other live socket, publish presence OFFLINE with a
+   * last_seen timestamp to the privacy audience (FASE 0.5 §14).
+   */
+  private async onDisconnect(socket: Socket, reason: string): Promise<void> {
+    const data = socket.data as SocketData;
+    const session = data.session;
+    this.log.event('socket.disconnect', {
+      reason,
+      account_id: session?.accountId,
+      device_id: session?.deviceId,
+    });
+    if (!session) return;
+    data.session = undefined;
+    // Only drop the registry entry if it still points at THIS socket: a
+    // reconnect of the same device may already own a newer session.
+    const current = this.sessions.bySessionId(session.sessionId);
+    if (current !== null && current.socketKey === socket.id) {
+      this.sessions.revoke(session.sessionId);
+    }
+    if (this.accountHasLiveSocket(session.accountId)) return;
+    const lastSeenMs = this.clock();
+    await this.store.setPresence({
+      accountId: session.accountId,
+      status: 'offline',
+      lastSeenMs,
+    });
+    const audience = await this.directory.presenceAudience(session.accountId);
+    for (const viewerAccountId of audience) {
+      this.io.to(`account:${viewerAccountId}`).emit(SocketEvent.presenceChanged, {
+        account_id: session.accountId,
+        status: 'offline',
+        last_seen_ms: lastSeenMs,
+      });
+    }
+  }
+
+  /** True when any still-connected socket carries a session of this account. */
+  private accountHasLiveSocket(accountId: string): boolean {
+    for (const socket of this.io.of('/').sockets.values()) {
+      const other = socket.data as SocketData;
+      if (socket.connected && other.session?.accountId === accountId) return true;
+    }
+    return false;
   }
 
   private async onAuthResponse(socket: Socket, payload: unknown): Promise<void> {
@@ -322,6 +375,13 @@ export class RealtimeServer {
 
     if (result.outcome !== HandshakeOutcome.success || !result.session) {
       for (const key of lockoutKeys) this.authFailures.recordFailure(key);
+      // Logged: the internal outcome name only. It carries NO key, NO
+      // signature, NO challenge bytes — just which check failed.
+      this.log.event('auth.failure', {
+        outcome: result.outcome,
+        device_id: typeof record['device_id'] === 'string' ? record['device_id'] : undefined,
+        ip: data.ip,
+      });
       // Generic code on the wire — no enumeration oracle (docs §2).
       socket.emit(SocketEvent.authFailure, { code: wireFailureCode(result.outcome) });
       this.disconnectSocket(socket);
@@ -350,6 +410,12 @@ export class RealtimeServer {
     for (const conversationId of conversations) {
       await socket.join(`conv:${conversationId}`);
     }
+
+    this.log.event('auth.success', {
+      account_id: result.session.accountId,
+      device_id: result.session.deviceId,
+      evicted: result.evicted.length,
+    });
 
     socket.emit(SocketEvent.authSuccess, {
       session_id: result.session.sessionId,
@@ -497,12 +563,30 @@ export class RealtimeServer {
 
     // Idempotency: a retried message_id gets the ORIGINAL ack (same
     // server_seq) and is NOT re-persisted / re-fanned-out.
-    if (!this.dedup.accept(envelope.messageId)) {
+    //
+    // The dedup key is scoped to the SENDING ACCOUNT: message_id is chosen
+    // by the client, so a global namespace would let an attacker
+    // pre-register ids and silently swallow another account's messages
+    // (a denial-of-delivery oracle). Scoping makes the id collision-safe.
+    const dedupKey = `${session.accountId}|${envelope.messageId}`;
+    if (!this.dedup.accept(dedupKey)) {
       const original = await this.store.findMessage(envelope.messageId);
+      // Only replay the original ack when the stored message really is
+      // this sender's, in this conversation.
+      const sameOrigin =
+        original !== null &&
+        original.senderAccountId === session.accountId &&
+        original.conversationId === envelope.conversationId;
+      this.log.event('message.duplicate', {
+        account_id: session.accountId,
+        conversation_id: envelope.conversationId,
+        message_id: envelope.messageId,
+        resolved: sameOrigin,
+      });
       socket.emit(SocketEvent.messageAck, {
         message_id: envelope.messageId,
-        conversation_id: original?.conversationId ?? envelope.conversationId,
-        server_seq: original?.serverSeq ?? 0,
+        conversation_id: envelope.conversationId,
+        server_seq: sameOrigin ? original.serverSeq : 0,
         duplicate: true,
       });
       return;
@@ -522,43 +606,60 @@ export class RealtimeServer {
       clientTimestampMs: envelope.clientTimestampMs,
     };
     await this.store.persistMessage(stored);
-    await this.store.appendEvent({
+
+    // The log payload is the EXACT wire shape of the live fan-out packet,
+    // so a message recovered through sync.response is byte-identical to
+    // one received live (a client must not need two parsers).
+    const wire = {
+      message_id: envelope.messageId,
+      conversation_id: envelope.conversationId,
+      sender_account_id: session.accountId,
+      sender_device_id: envelope.senderDeviceId,
+      ciphertext: envelope.ciphertextBase64,
+      header_type: envelope.headerType,
+      server_seq: serverSeq,
+      received_at_ms: receivedAtMs,
+      ...(envelope.clientTimestampMs !== undefined
+        ? { client_ts_ms: envelope.clientTimestampMs }
+        : {}),
+    };
+    const logSeq = await this.store.appendEvent({
       conversationId: envelope.conversationId,
       type: 'message.new',
       serverSeq,
       atMs: receivedAtMs,
-      payload: { ...stored },
+      payload: wire,
     });
 
     // Membership-granted room (lazy ensure in case membership was added
     // after this socket authenticated).
     await socket.join(`conv:${envelope.conversationId}`);
 
+    this.log.event('message.accepted', {
+      account_id: session.accountId,
+      device_id: session.deviceId,
+      conversation_id: envelope.conversationId,
+      message_id: envelope.messageId,
+      server_seq: serverSeq,
+      log_seq: logSeq,
+      bytes: envelope.ciphertextBase64.length,
+    });
+
     // 1) ack to the emitter: RECEIVED + persisted (not delivered/read).
     socket.emit(SocketEvent.messageAck, {
       message_id: envelope.messageId,
       conversation_id: envelope.conversationId,
       server_seq: serverSeq,
+      log_seq: logSeq,
     });
 
     // 2) fan-out to the conversation room (sender's OTHER devices receive
-    //    it too; the emitting socket only gets the ack).
+    //    it too; the emitting socket only gets the ack). Identical shape
+    //    to the logged payload replayed by sync.response.
     this.io
       .to(`conv:${envelope.conversationId}`)
       .except(socket.id)
-      .emit(SocketEvent.messageNew, {
-        message_id: envelope.messageId,
-        conversation_id: envelope.conversationId,
-        sender_account_id: session.accountId,
-        sender_device_id: envelope.senderDeviceId,
-        ciphertext: envelope.ciphertextBase64,
-        header_type: envelope.headerType,
-        server_seq: serverSeq,
-        received_at_ms: receivedAtMs,
-        ...(envelope.clientTimestampMs !== undefined
-          ? { client_ts_ms: envelope.clientTimestampMs }
-          : {}),
-      });
+      .emit(SocketEvent.messageNew, { ...wire, log_seq: logSeq });
   }
 
   private async onMessageTyping(socket: Socket, payload: unknown): Promise<void> {
@@ -629,25 +730,45 @@ export class RealtimeServer {
       return;
     }
     const original = await this.store.findMessage(messageId);
+    // A receipt for a message that does not exist in this conversation is
+    // rejected: receipts must never be able to invent log entries.
+    if (original === null || original.conversationId !== conversationId) {
+      socket.emit(SocketEvent.systemError, {
+        code: SocketErrorCode.payloadInvalid,
+        event: SocketEvent.messageDelivered,
+      });
+      return;
+    }
+    // A device never "delivers" its own outgoing message.
+    if (original.senderAccountId === session.accountId) {
+      socket.emit(SocketEvent.systemError, {
+        code: SocketErrorCode.payloadInvalid,
+        event: SocketEvent.messageDelivered,
+      });
+      return;
+    }
     const atMs = this.clock();
-    const serverSeq = original?.serverSeq ?? (await this.store.latestSeq(conversationId));
-    await this.store.appendEvent({
+    const serverSeq = original.serverSeq;
+    // DELIVERED is a distinct state from SENT (message.ack) and from READ.
+    const receipt = {
+      conversation_id: conversationId,
+      message_id: messageId,
+      by_account_id: session.accountId,
+      by_device_id: session.deviceId,
+      server_seq: serverSeq,
+      at_ms: atMs,
+    };
+    const logSeq = await this.store.appendEvent({
       conversationId,
       type: 'message.delivered',
       serverSeq,
       atMs,
-      payload: { message_id: messageId, by_account_id: session.accountId, at_ms: atMs },
+      payload: receipt,
     });
     this.io
       .to(`conv:${conversationId}`)
       .except(socket.id)
-      .emit(SocketEvent.messageDelivered, {
-        conversation_id: conversationId,
-        message_id: messageId,
-        by_account_id: session.accountId,
-        by_device_id: session.deviceId,
-        at_ms: atMs,
-      });
+      .emit(SocketEvent.messageDelivered, { ...receipt, log_seq: logSeq });
   }
 
   private async onMessageRead(socket: Socket, payload: unknown): Promise<void> {
@@ -678,29 +799,35 @@ export class RealtimeServer {
       });
       return;
     }
+    // READ is a high-water mark: "everything up to last_read_seq".
+    // A client-supplied value is CLAMPED to what actually exists, so a
+    // client can never move the mark past the server's own sequence.
     const lastReadSeqRaw = record['last_read_seq'];
     const atMs = this.clock();
-    const serverSeq =
-      typeof lastReadSeqRaw === 'number'
-        ? lastReadSeqRaw
-        : await this.store.latestSeq(conversationId);
-    await this.store.appendEvent({
+    const latest = await this.store.latestSeq(conversationId);
+    const requested =
+      typeof lastReadSeqRaw === 'number' && Number.isFinite(lastReadSeqRaw)
+        ? Math.floor(lastReadSeqRaw)
+        : latest;
+    const serverSeq = Math.max(0, Math.min(requested, latest));
+    const receipt = {
+      conversation_id: conversationId,
+      by_account_id: session.accountId,
+      by_device_id: session.deviceId,
+      last_read_seq: serverSeq,
+      at_ms: atMs,
+    };
+    const logSeq = await this.store.appendEvent({
       conversationId,
       type: 'message.read',
       serverSeq,
       atMs,
-      payload: { by_account_id: session.accountId, at_ms: atMs, last_read_seq: serverSeq },
+      payload: receipt,
     });
     this.io
       .to(`conv:${conversationId}`)
       .except(socket.id)
-      .emit(SocketEvent.messageRead, {
-        conversation_id: conversationId,
-        by_account_id: session.accountId,
-        by_device_id: session.deviceId,
-        last_read_seq: serverSeq,
-        at_ms: atMs,
-      });
+      .emit(SocketEvent.messageRead, { ...receipt, log_seq: logSeq });
   }
 
   // ------------------------------------------------------------------
@@ -720,40 +847,105 @@ export class RealtimeServer {
     }
     const record = this.payloadObject(payload);
     const conversationId = record['conversation_id'];
-    const lastSeq = record['last_seq'];
-    if (typeof conversationId !== 'string' || conversationId.length === 0) {
+
+    // Two shapes are accepted (FASE 0.5 §15):
+    //   { conversation_id, last_seq }  -> one conversation
+    //   { cursors: { <conv>: <last_seq> } } or {} -> EVERY conversation the
+    //   account belongs to. After a reconnect a client does not yet know
+    //   which conversations changed while it was offline, so a
+    //   conversation-only sync could never recover a message that arrived
+    //   in a chat it had not opened.
+    if (conversationId !== undefined && typeof conversationId !== 'string') {
       socket.emit(SocketEvent.systemError, {
         code: SocketErrorCode.payloadInvalid,
         event: SocketEvent.syncRequest,
       });
       return;
     }
-    const decision = await this.authz.canReadConversation(session, conversationId);
-    if (decision !== AuthzDecision.allow) {
-      socket.emit(SocketEvent.systemError, {
-        code: SocketErrorCode.forbidden,
-        event: SocketEvent.syncRequest,
-      });
-      return;
+
+    // Cursor field: `last_seq` is the LOG cursor (see RealtimeStore docs).
+    const readCursor = (raw: unknown): number =>
+      typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+
+    let targets: string[];
+    const cursors = new Map<string, number>();
+    if (typeof conversationId === 'string' && conversationId.length > 0) {
+      const decision = await this.authz.canReadConversation(session, conversationId);
+      if (decision !== AuthzDecision.allow) {
+        socket.emit(SocketEvent.systemError, {
+          code: SocketErrorCode.forbidden,
+          event: SocketEvent.syncRequest,
+        });
+        return;
+      }
+      targets = [conversationId];
+      cursors.set(conversationId, readCursor(record['last_seq']));
+    } else {
+      // Account-wide: membership is server-side truth, so every returned
+      // conversation is authorized by construction.
+      targets = await this.directory.listConversationsForAccount(session.accountId);
+      const supplied = this.payloadObject(record['cursors']);
+      for (const target of targets) {
+        cursors.set(target, readCursor(supplied[target]));
+      }
     }
-    const cursor = typeof lastSeq === 'number' && lastSeq >= 0 ? lastSeq : 0;
-    const events = await this.store.eventsSince(
-      conversationId,
-      cursor,
-      this.config.syncPageLimit,
-    );
-    const latest = await this.store.latestSeq(conversationId);
-    await socket.join(`conv:${conversationId}`);
+
+    const conversations: Array<Record<string, unknown>> = [];
+    let hasMore = false;
+    for (const target of targets) {
+      const events = await this.store.eventsSince(
+        target,
+        cursors.get(target) ?? 0,
+        this.config.syncPageLimit,
+      );
+      const latestLogSeq = await this.store.latestLogSeq(target);
+      const pageIsFull = events.length === this.config.syncPageLimit;
+      if (pageIsFull) hasMore = true;
+      // Cursor = last event actually delivered in THIS page. Advancing it
+      // to the head while truncating a page would skip events forever.
+      const cursor = pageIsFull
+        ? events[events.length - 1]!.logSeq
+        : latestLogSeq;
+      await socket.join(`conv:${target}`);
+      conversations.push({
+        conversation_id: target,
+        events: events.map((event) => ({
+          type: event.type,
+          log_seq: event.logSeq,
+          server_seq: event.serverSeq,
+          at_ms: event.atMs,
+          ...event.payload,
+        })),
+        cursor,
+        has_more: pageIsFull,
+      });
+    }
+
+    this.log.event('sync.served', {
+      account_id: session.accountId,
+      device_id: session.deviceId,
+      conversations: conversations.length,
+      events: conversations.reduce(
+        (total, entry) => total + (entry['events'] as unknown[]).length,
+        0,
+      ),
+    });
+
+    const single = conversations.length === 1 ? conversations[0]! : null;
     socket.emit(SocketEvent.syncResponse, {
-      conversation_id: conversationId,
-      events: events.map((event) => ({
-        type: event.type,
-        server_seq: event.serverSeq,
-        at_ms: event.atMs,
-        ...event.payload,
-      })),
-      cursor: latest,
-      has_more: events.length === this.config.syncPageLimit,
+      // Multi-conversation view (always present).
+      conversations,
+      has_more: hasMore,
+      // Back-compatible single-conversation view: kept so the existing
+      // client contract (conversation_id/events/cursor at top level)
+      // keeps working unchanged.
+      ...(single !== null
+        ? {
+            conversation_id: single['conversation_id'],
+            events: single['events'],
+            cursor: single['cursor'],
+          }
+        : { events: [], cursor: 0 }),
     });
   }
 
@@ -788,6 +980,10 @@ export class RealtimeServer {
       accountId: session.accountId,
       status,
       lastSeenMs,
+    });
+    this.log.event('presence.update', {
+      account_id: session.accountId,
+      status,
     });
     // Fan out ONLY to the subject's privacy audience — never global.
     const audience = await this.directory.presenceAudience(session.accountId);

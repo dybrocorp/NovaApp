@@ -18,8 +18,10 @@ Especificación de referencia: `docs/SOCKET_SERVER_ARCHITECTURE.md`.
 | `sync.request/response` (replay del log por cursor) | ✅ implementado + E2E |
 | Presencia (audiencia privada) + signaling de llamadas (relay, anti-spoof) | ✅ implementado + E2E |
 | Rate limits de servidor (token bucket por dominio + lockout auth) | ✅ implementado + E2E |
-| Almacén | `memory` (un nodo) por defecto; `supabase` (PostgREST, service role) cableado |
-| Redis adapter multi-nodo / caché 30s / redis-emitter | ⏳ PASO 6 |
+| Almacén | `memory` (un nodo) por defecto; `supabase` (PostgREST, service role) **implementado + E2E** |
+| Presencia offline automática al caer el socket | ✅ implementado + E2E |
+| Logging redactado (sin claves/plaintext/sesiones) | ✅ implementado + E2E |
+| Redis (multi-nodo, sesiones/challenges/dedup/cursores compartidos) | ❌ **AUSENTE** — ver `docs/REALTIME_PRODUCTION_CHECKLIST.md` §2 |
 | Contenedor + healthcheck + compose (server+redis) | ✅ |
 
 ## Ejecutar
@@ -71,7 +73,25 @@ del doc de arquitectura).
 
 ## Tests
 
-`npm test` — 40 casos E2E sobre WebSockets reales en loopback con firmas
-Ed25519 reales (`server/test/e2e_*.test.ts`): handshake (10), sesiones y
-dispositivos (6), mensajería (10), rate limits (4), sync (4), presencia y
-llamadas (6). Paridad con los tests Dart de `test/socket/`.
+`npm test` — **109 casos E2E** sobre WebSockets reales en loopback con
+firmas Ed25519 reales y E2EE real (X3DH + Double Ratchet):
+
+| Suite | Casos |
+|---|---:|
+| `e2e_auth_matrix` — matriz completa de autenticación | 17 |
+| `e2e_presence_signaling_logs` — presencia, señalización, logs, límites, concurrencia | 14 |
+| `e2e_authorization` — aislamiento A/B, rooms, spoofing | 12 |
+| `e2e_ab_flow` — A →E2EE→ servidor →E2EE→ B | 10 |
+| `e2e_reconnect_sync` — reconexión, cambio de red, sync, reinicio | 10 |
+| `e2e_handshake` | 10 |
+| `e2e_messaging` | 10 |
+| `e2e_sessions_devices` | 6 |
+| `e2e_supabase_store` — ruta A→Supabase→B | 6 |
+| `e2e_rate_limits` | 4 |
+| `e2e_sync` | 4 |
+
+Arnés de cliente reutilizable: `src/client/nova_client.ts` (cliente real
+con handshake, outbox idempotente y cursores) y `src/client/e2ee.ts`
+(X3DH + Double Ratchet sobre `node:crypto`).
+
+Detalle: `docs/E2E_REALTIME_TESTING.md`.
