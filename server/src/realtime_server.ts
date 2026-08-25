@@ -91,6 +91,15 @@ export interface ParsedMessageEnvelope {
   ciphertextBase64: string;
   headerType: string;
   clientTimestampMs?: number;
+  /**
+   * FASE 1 per-device fan-out (§15): when present, this envelope is ONE
+   * copy addressed to a specific recipient device, and the server routes
+   * it to that device only. Absent = legacy conversation-wide broadcast.
+   */
+  recipientDeviceId?: string;
+  messageType?: string;
+  envelopeVersion?: number;
+  expiresAtMs?: number;
 }
 
 export class RealtimeServer {
@@ -509,6 +518,28 @@ export class RealtimeServer {
     if (clientTs !== undefined && typeof clientTs !== 'number') {
       return { error: SocketErrorCode.payloadInvalid };
     }
+
+    // FASE 1 (§15): optional per-device addressing.
+    const recipientDeviceId = record['recipient_device_id'];
+    if (
+      recipientDeviceId !== undefined &&
+      (typeof recipientDeviceId !== 'string' || recipientDeviceId.length === 0)
+    ) {
+      return { error: SocketErrorCode.payloadInvalid };
+    }
+    const messageType = record['message_type'];
+    if (messageType !== undefined && typeof messageType !== 'string') {
+      return { error: SocketErrorCode.payloadInvalid };
+    }
+    const envelopeVersion = record['envelope_version'];
+    if (envelopeVersion !== undefined && typeof envelopeVersion !== 'number') {
+      return { error: SocketErrorCode.payloadInvalid };
+    }
+    const expiresAt = record['expires_at_ms'];
+    if (expiresAt !== undefined && typeof expiresAt !== 'number') {
+      return { error: SocketErrorCode.payloadInvalid };
+    }
+
     return {
       envelope: {
         messageId,
@@ -517,6 +548,12 @@ export class RealtimeServer {
         ciphertextBase64: ciphertext,
         headerType,
         clientTimestampMs: typeof clientTs === 'number' ? clientTs : undefined,
+        recipientDeviceId:
+          typeof recipientDeviceId === 'string' ? recipientDeviceId : undefined,
+        messageType: typeof messageType === 'string' ? messageType : undefined,
+        envelopeVersion:
+          typeof envelopeVersion === 'number' ? envelopeVersion : undefined,
+        expiresAtMs: typeof expiresAt === 'number' ? expiresAt : undefined,
       },
     };
   }
@@ -568,9 +605,18 @@ export class RealtimeServer {
     // by the client, so a global namespace would let an attacker
     // pre-register ids and silently swallow another account's messages
     // (a denial-of-delivery oracle). Scoping makes the id collision-safe.
-    const dedupKey = `${session.accountId}|${envelope.messageId}`;
+    //
+    // FASE 1 (§15): with per-device fan-out the SAME message_id is sent
+    // once per recipient device. Those copies are DIFFERENT ciphertexts
+    // and must all be delivered, so the dedup key includes the recipient
+    // device. Without it, only the first device would ever receive the
+    // message and the rest would be silently swallowed as "duplicates".
+    const storageKey = envelope.recipientDeviceId
+      ? `${envelope.messageId}#${envelope.recipientDeviceId}`
+      : envelope.messageId;
+    const dedupKey = `${session.accountId}|${storageKey}`;
     if (!this.dedup.accept(dedupKey)) {
-      const original = await this.store.findMessage(envelope.messageId);
+      const original = await this.store.findMessage(storageKey);
       // Only replay the original ack when the stored message really is
       // this sender's, in this conversation.
       const sameOrigin =
@@ -588,6 +634,9 @@ export class RealtimeServer {
         conversation_id: envelope.conversationId,
         server_seq: sameOrigin ? original.serverSeq : 0,
         duplicate: true,
+        ...(envelope.recipientDeviceId !== undefined
+          ? { recipient_device_id: envelope.recipientDeviceId }
+          : {}),
       });
       return;
     }
@@ -595,7 +644,9 @@ export class RealtimeServer {
     const serverSeq = await this.store.nextSeq(envelope.conversationId);
     const receivedAtMs = this.clock();
     const stored: StoredMessage = {
-      messageId: envelope.messageId,
+      // Storage key includes the target device so per-device copies do
+      // not overwrite each other; the wire keeps the logical message_id.
+      messageId: storageKey,
       conversationId: envelope.conversationId,
       senderAccountId: session.accountId,
       senderDeviceId: envelope.senderDeviceId,
@@ -619,6 +670,18 @@ export class RealtimeServer {
       header_type: envelope.headerType,
       server_seq: serverSeq,
       received_at_ms: receivedAtMs,
+      ...(envelope.recipientDeviceId !== undefined
+        ? { recipient_device_id: envelope.recipientDeviceId }
+        : {}),
+      ...(envelope.messageType !== undefined
+        ? { message_type: envelope.messageType }
+        : {}),
+      ...(envelope.envelopeVersion !== undefined
+        ? { envelope_version: envelope.envelopeVersion }
+        : {}),
+      ...(envelope.expiresAtMs !== undefined
+        ? { expires_at_ms: envelope.expiresAtMs }
+        : {}),
       ...(envelope.clientTimestampMs !== undefined
         ? { client_ts_ms: envelope.clientTimestampMs }
         : {}),
@@ -651,15 +714,32 @@ export class RealtimeServer {
       conversation_id: envelope.conversationId,
       server_seq: serverSeq,
       log_seq: logSeq,
+      // Echoed so the sender can match the ack to the right per-device
+      // Outbox row: one message_id has one ack PER recipient device.
+      ...(envelope.recipientDeviceId !== undefined
+        ? { recipient_device_id: envelope.recipientDeviceId }
+        : {}),
     });
 
     // 2) fan-out to the conversation room (sender's OTHER devices receive
     //    it too; the emitting socket only gets the ack). Identical shape
     //    to the logged payload replayed by sync.response.
-    this.io
-      .to(`conv:${envelope.conversationId}`)
-      .except(socket.id)
-      .emit(SocketEvent.messageNew, { ...wire, log_seq: logSeq });
+    if (envelope.recipientDeviceId !== undefined) {
+      // Per-device copy (§15): deliver ONLY to the addressed device.
+      // Broadcasting it to the whole conversation would hand every
+      // member a ciphertext they cannot decrypt, and would leak the
+      // device fan-out pattern to the other participants.
+      this.io
+        .to(`device:${envelope.recipientDeviceId}`)
+        .except(socket.id)
+        .emit(SocketEvent.messageNew, { ...wire, log_seq: logSeq });
+    } else {
+      // Legacy conversation-wide broadcast (FASE 0.5 contract).
+      this.io
+        .to(`conv:${envelope.conversationId}`)
+        .except(socket.id)
+        .emit(SocketEvent.messageNew, { ...wire, log_seq: logSeq });
+    }
   }
 
   private async onMessageTyping(socket: Socket, payload: unknown): Promise<void> {
