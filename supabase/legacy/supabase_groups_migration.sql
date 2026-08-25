@@ -1,3 +1,21 @@
+-- =====================================================================
+--  ARCHIVO HISTÓRICO — NO EJECUTAR
+-- =====================================================================
+--  Este archivo fue reemplazado por:  supabase/novaapp_schema.sql
+--
+--  Se conserva sólo como referencia. Ejecutarlo puede:
+--    * romper el esquema vigente (colisiones de tablas),
+--    * reintroducir políticas RLS inseguras ya corregidas,
+--    * en el caso de supabase_setup.sql, BORRAR mensajes y contactos
+--      (empezaba con DROP TABLE ... CASCADE).
+--
+--  Para instalar o actualizar la base de datos:
+--    Supabase → SQL Editor → pegar supabase/novaapp_schema.sql → Run
+--
+--  Detalle de la unificación y de los errores corregidos:
+--    supabase/README.md
+-- =====================================================================
+
 -- Migration: Groups system for FASE 8
 -- Run AFTER supabase_chat_enhancement_migration.sql
 

@@ -18,7 +18,7 @@
  *     server/sql/realtime_schema.sql). If that RPC is missing the store
  *     FAILS CLOSED instead of silently racing two writers onto one seq.
  *
- * Required tables/columns: server/sql/realtime_schema.sql.
+ * Tablas requeridas: supabase/novaapp_schema.sql (prefijo `realtime_`).
  */
 import type {
   AppendableEvent,
@@ -131,7 +131,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   async latestSeq(conversationId: string): Promise<number> {
     const rows = await this.rest<{ last_seq: number }>(
       'GET',
-      `conversation_cursors?conversation_id=eq.${encodeURIComponent(conversationId)}` +
+      `realtime_cursors?conversation_id=eq.${encodeURIComponent(conversationId)}` +
         '&select=last_seq&limit=1',
       undefined,
       'return=representation',
@@ -140,7 +140,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   }
 
   async persistMessage(message: StoredMessage): Promise<void> {
-    await this.rest('POST', 'messages?on_conflict=message_id', {
+    await this.rest('POST', 'realtime_messages?on_conflict=message_id', {
       message_id: message.messageId,
       conversation_id: message.conversationId,
       sender_account_id: message.senderAccountId,
@@ -156,7 +156,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   async findMessage(messageId: string): Promise<StoredMessage | null> {
     const rows = await this.rest<MessageRow>(
       'GET',
-      `messages?message_id=eq.${encodeURIComponent(messageId)}&select=*&limit=1`,
+      `realtime_messages?message_id=eq.${encodeURIComponent(messageId)}&select=*&limit=1`,
       undefined,
       'return=representation',
     );
@@ -218,7 +218,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   async latestLogSeq(conversationId: string): Promise<number> {
     const rows = await this.rest<{ last_log_seq: number }>(
       'GET',
-      `conversation_cursors?conversation_id=eq.${encodeURIComponent(conversationId)}` +
+      `realtime_cursors?conversation_id=eq.${encodeURIComponent(conversationId)}` +
         '&select=last_log_seq&limit=1',
       undefined,
       'return=representation',
@@ -229,7 +229,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   async getPresence(accountId: string): Promise<PresenceRecord | null> {
     const rows = await this.rest<PresenceRow>(
       'GET',
-      `presence?account_id=eq.${encodeURIComponent(accountId)}&select=*&limit=1`,
+      `realtime_presence?account_id=eq.${encodeURIComponent(accountId)}&select=*&limit=1`,
       undefined,
       'return=representation',
     );
@@ -243,7 +243,7 @@ export class SupabaseRealtimeStore implements RealtimeStore {
   }
 
   async setPresence(record: PresenceRecord): Promise<void> {
-    await this.rest('POST', 'presence?on_conflict=account_id', {
+    await this.rest('POST', 'realtime_presence?on_conflict=account_id', {
       account_id: record.accountId,
       status: record.status,
       last_seen_ms: record.lastSeenMs,

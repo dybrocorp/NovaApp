@@ -5,8 +5,8 @@
  *
  * Status (PASO 5): wired and type-checked, exercised only through the
  * Directory contract; the E2E suite runs against MemoryDirectory because
- * CI has no Supabase project. Required columns are documented in
- * server/sql/realtime_schema.sql. A 30s cache layer (docs §6) is PASO 6.
+ * CI has no Supabase project. Las columnas requeridas se documentan en
+ * supabase/novaapp_schema.sql (tablas con prefijo `realtime_`). A 30s cache layer (docs §6) is PASO 6.
  */
 import type { DeviceRecord } from '../protocol/device_registry.js';
 import type { Directory } from './directory.js';
@@ -99,14 +99,14 @@ export class SupabaseDirectory implements Directory {
   async isConversationMember(conversationId: string, accountId: string): Promise<boolean> {
     const rows = await this.rest<{ conversation_id: string }>(
       'GET',
-      'conversation_members',
+      'realtime_conversation_members',
       `?conversation_id=eq.${encodeURIComponent(conversationId)}&account_id=eq.${encodeURIComponent(accountId)}&select=conversation_id&limit=1`,
     );
     return rows.length > 0;
   }
 
   async addConversationMember(conversationId: string, accountId: string): Promise<void> {
-    await this.rest('POST', 'conversation_members', '?on_conflict=conversation_id,account_id', {
+    await this.rest('POST', 'realtime_conversation_members', '?on_conflict=conversation_id,account_id', {
       conversation_id: conversationId,
       account_id: accountId,
     });
@@ -115,7 +115,7 @@ export class SupabaseDirectory implements Directory {
   async listConversationsForAccount(accountId: string): Promise<string[]> {
     const rows = await this.rest<{ conversation_id: string }>(
       'GET',
-      'conversation_members',
+      'realtime_conversation_members',
       `?account_id=eq.${encodeURIComponent(accountId)}&select=conversation_id`,
     );
     return rows.map((row) => row.conversation_id);
@@ -124,14 +124,14 @@ export class SupabaseDirectory implements Directory {
   async hasRelationship(a: string, b: string): Promise<boolean> {
     const rows = await this.rest<{ peer: string }>(
       'GET',
-      'contacts',
+      'realtime_contacts',
       `?account_id=eq.${encodeURIComponent(a)}&peer_id=eq.${encodeURIComponent(b)}&blocked=eq.false&select=peer_id&limit=1`,
     );
     return rows.length > 0;
   }
 
   async addRelationship(a: string, b: string): Promise<void> {
-    await this.rest('POST', 'contacts', '?on_conflict=account_id,peer_id', [
+    await this.rest('POST', 'realtime_contacts', '?on_conflict=account_id,peer_id', [
       { account_id: a, peer_id: b, blocked: false },
       { account_id: b, peer_id: a, blocked: false },
     ]);
@@ -140,14 +140,14 @@ export class SupabaseDirectory implements Directory {
   async presenceAudience(subjectAccountId: string): Promise<string[]> {
     const rows = await this.rest<{ viewer_id: string }>(
       'GET',
-      'presence_audience',
+      'realtime_presence_audience',
       `?subject_id=eq.${encodeURIComponent(subjectAccountId)}&select=viewer_id`,
     );
     return rows.map((row) => row.viewer_id);
   }
 
   async allowPresence(subjectAccountId: string, viewerAccountId: string): Promise<void> {
-    await this.rest('POST', 'presence_audience', '?on_conflict=subject_id,viewer_id', {
+    await this.rest('POST', 'realtime_presence_audience', '?on_conflict=subject_id,viewer_id', {
       subject_id: subjectAccountId,
       viewer_id: viewerAccountId,
     });

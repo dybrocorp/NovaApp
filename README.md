@@ -125,12 +125,16 @@ FIREBASE_PROJECT_ID=your_firebase_project_id
 ### Database Setup
 
 1. Create a Supabase project
-2. Run the SQL migrations in order:
-   - `supabase_setup.sql` — Base schema + RLS
-   - `supabase_x3dh_migration.sql` — Crypto key tables
-   - `supabase_auth_migration.sql` — Auth, devices, sessions
-   - `supabase_chat_enhancement_migration.sql` — Message enhancements
-   - `supabase_groups_migration.sql` — Groups system
+2. Open **SQL Editor**, paste the whole of **`supabase/novaapp_schema.sql`**
+   and press **Run**.
+
+That single file is the complete schema: tables, functions, triggers, RLS
+policies, the realtime publication and grants. It is **idempotent** (safe to
+re-run) and **non-destructive** (it never drops a table or deletes data).
+
+It replaces the six previous migration files, which are kept only as
+historical reference — do not run them. See `supabase/README.md` for the
+full list of what was unified and the bugs that were fixed in the process.
 
 ## Testing
 

@@ -200,9 +200,9 @@ test('1. A -> Supabase -> B: the full round trip persists and delivers', async (
   assert.equal(bob.decrypt(unpackEnvelope(inbound['ciphertext'] as string)), plaintext);
 
   // It really went through the Supabase tables.
-  const rows = postgrest.tables.get('messages') ?? [];
+  const rows = postgrest.tables.get('realtime_messages') ?? [];
   const persisted = rows.find((row) => row['message_id'] === messageId);
-  assert.ok(persisted, 'the message reached the Supabase messages table');
+  assert.ok(persisted, 'the message reached the Supabase realtime_messages table');
   assert.equal(persisted!['ciphertext'], ciphertextBase64);
   assert.equal(
     JSON.stringify(persisted).includes(plaintext),
