@@ -10,6 +10,7 @@ import { attachAdminApi } from './admin_api.js';
 import { MemoryDirectory } from './directory/memory_directory.js';
 import { SupabaseDirectory } from './directory/supabase_directory.js';
 import { MemoryRealtimeStore } from './store/realtime_store.js';
+import { SupabaseRealtimeStore } from './store/supabase_store.js';
 
 async function main(): Promise<void> {
   const config = configFromEnv();
@@ -18,7 +19,14 @@ async function main(): Promise<void> {
       ? new SupabaseDirectory(config.supabaseUrl, config.supabaseServiceRoleKey)
       : new MemoryDirectory();
 
-  const server = new RealtimeServer({ config, directory, store: new MemoryRealtimeStore() });
+  // The service role key stays here, in the backend process. It is never
+  // sent to a client and never logged (see src/logger.ts).
+  const store =
+    config.storeBackend === 'supabase'
+      ? new SupabaseRealtimeStore(config.supabaseUrl, config.supabaseServiceRoleKey)
+      : new MemoryRealtimeStore();
+
+  const server = new RealtimeServer({ config, directory, store });
   attachAdminApi(server);
 
   const port = Number.parseInt(process.env.PORT ?? '4000', 10);

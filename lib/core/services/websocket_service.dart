@@ -146,7 +146,12 @@ class WebSocketService {
   int _consecutiveAuthFailures = 0;
   DateTime? _authLockoutUntil;
   bool _userInitiatedDisconnect = false;
-  int _lastSyncCursor = 0;
+
+  /// Per-conversation sync cursors (`log_seq`, the server's event-log
+  /// sequence). One scalar cursor cannot work: conversations advance
+  /// independently, so a single number would either replay events already
+  /// applied or skip events in a quieter conversation.
+  final Map<String, int> _syncCursors = <String, int>{};
 
   final Map<String, Function(dynamic)> _messageHandlers = {};
   final Map<String, Function()> _eventHandlers = {};
@@ -319,14 +324,41 @@ class WebSocketService {
     );
   }
 
+  /// Acknowledges that THIS device received a message (DELIVERED).
+  ///
+  /// SENT / DELIVERED / READ are three distinct states and are never
+  /// conflated: `message.ack` means the SERVER stored the message, this
+  /// event means the RECIPIENT DEVICE has it, and [markConversationAsRead]
+  /// means the user actually read it.
+  void markMessageDelivered(String conversationId, String messageId) {
+    if (conversationId.isEmpty || messageId.isEmpty) return;
+    _emitGuarded(
+      SocketEvent.messageDelivered,
+      _rateLimiters.message,
+      <String, dynamic>{
+        'conversation_id': conversationId,
+        'message_id': messageId,
+      },
+    );
+  }
+
   /// Reports a conversation as read (SENT/DELIVERED/READ stay distinct).
-  void markConversationAsRead(String conversationId, {String? messageId}) {
+  ///
+  /// [lastReadSeq] is the server sequence of the newest read message (a
+  /// high-water mark). The server clamps it to what actually exists, so a
+  /// stale or optimistic value can never move the mark into the future.
+  void markConversationAsRead(
+    String conversationId, {
+    String? messageId,
+    int? lastReadSeq,
+  }) {
     _emitGuarded(
       SocketEvent.messageRead,
       _rateLimiters.message,
       <String, dynamic>{
         'conversation_id': conversationId,
         if (messageId != null) 'message_id': messageId,
+        if (lastReadSeq != null) 'last_read_seq': lastReadSeq,
       },
     );
   }
@@ -817,31 +849,86 @@ class WebSocketService {
     _outbox.cleanup();
   }
 
-  void _requestSync() {
+  /// Requests missed events.
+  ///
+  /// With [conversationId]: a single conversation, from its own cursor.
+  /// Without it: an ACCOUNT-WIDE sync — after a reconnect the client does
+  /// not know which conversations moved while it was offline, so asking
+  /// only about known ones would silently miss whole chats.
+  ///
+  /// The cursor field is `last_seq` (the server's event-log sequence);
+  /// the payload keys must match the server contract exactly.
+  void _requestSync({String? conversationId}) {
     _emitGuarded(
       SocketEvent.syncRequest,
       _rateLimiters.sync,
-      <String, dynamic>{
-        'last_cursor': _lastSyncCursor,
-        'device_id': _deviceId,
-      },
+      conversationId != null
+          ? <String, dynamic>{
+              'conversation_id': conversationId,
+              'last_seq': _syncCursors[conversationId] ?? 0,
+            }
+          : <String, dynamic>{
+              'cursors': Map<String, dynamic>.from(_syncCursors),
+            },
     );
   }
 
+  /// Public resync trigger (e.g. after the app returns to the foreground).
+  void requestSync({String? conversationId}) =>
+      _requestSync(conversationId: conversationId);
+
+  /// Last applied server cursor for a conversation (0 when unknown).
+  int syncCursor(String conversationId) => _syncCursors[conversationId] ?? 0;
+
   void _handleSyncResponse(dynamic data) {
     if (data is! Map) return;
-    final cursor = data['cursor'];
-    if (cursor is int && cursor > _lastSyncCursor) {
-      _lastSyncCursor = cursor;
+
+    // The server answers with a `conversations` list; the single
+    // conversation fields are mirrored at the top level for compatibility.
+    final conversations = data['conversations'];
+    if (conversations is List) {
+      for (final entry in conversations) {
+        if (entry is Map) _applySyncConversation(entry);
+      }
+    } else {
+      _applySyncConversation(data);
     }
-    final events = data['events'];
+
+    _networkHandler.resyncCompleted();
+    _dispatchEvent('synced');
+  }
+
+  void _applySyncConversation(Map<dynamic, dynamic> entry) {
+    final conversationId = entry['conversation_id'];
+    final events = entry['events'];
     if (events is List) {
       for (final event in events) {
+        if (event is! Map) continue;
+        // Recovered message events are deduped through the SAME gap
+        // detector as live traffic, so an event seen live and replayed by
+        // sync is applied exactly once.
+        if (event['type'] == 'message.new' && conversationId is String) {
+          final messageId = event['message_id'];
+          final serverSeq = event['server_seq'];
+          if (messageId is String && serverSeq is int) {
+            final result = _gapDetector.feed(
+              conversationId: conversationId,
+              messageId: messageId,
+              serverSeq: serverSeq,
+            );
+            if (result == SequenceGapDetector.FeedResult.duplicate) continue;
+          }
+        }
         _dispatchMessage('sync.event', event);
       }
     }
-    _networkHandler.resyncCompleted();
-    _dispatchEvent('synced');
+    // Advance the cursor only AFTER the batch was applied: a cursor moved
+    // early would drop events if the client died mid-batch.
+    final cursor = entry['cursor'];
+    if (conversationId is String && cursor is int) {
+      final current = _syncCursors[conversationId] ?? 0;
+      if (cursor > current) _syncCursors[conversationId] = cursor;
+    }
   }
 
   void _handleInboundMessage(dynamic data) {
@@ -863,12 +950,20 @@ class WebSocketService {
       case SequenceGapDetector.FeedResult.duplicate:
         return; // Already applied — never process twice.
       case SequenceGapDetector.FeedResult.gapDetected:
-        // Missing predecessors: ask the server for the missing range.
+        // Missing predecessors: ask the server for the missing range of
+        // THIS conversation only.
         _networkHandler.markResyncNeeded();
-        _requestSync();
+        _requestSync(conversationId: parsed.conversationId);
       case SequenceGapDetector.FeedResult.accepted:
       case SequenceGapDetector.FeedResult.buffered:
         break;
+    }
+    // Track the server's event-log cursor so a later sync resumes from
+    // here instead of replaying the whole conversation.
+    final logSeq = data is Map ? data['log_seq'] : null;
+    if (logSeq is int) {
+      final current = _syncCursors[parsed.conversationId] ?? 0;
+      if (logSeq > current) _syncCursors[parsed.conversationId] = logSeq;
     }
     _dispatchMessage(SocketEvent.messageNew, data);
   }
