@@ -45,7 +45,19 @@ mensajes y contactos existentes (empezaba con `DROP TABLE ... CASCADE`).
 
 ## Errores corregidos al unificar
 
-Todos verificados con el parser real de PostgreSQL (libpg_query).
+Ejecutados y verificados contra **PostgreSQL 16.2 real** (13 escenarios,
+ver "Validación ejecutada" más abajo).
+
+0. **`ERROR: 42703: column "device_id" does not exist` al aplicarlo sobre
+   un proyecto ya existente.** `CREATE TABLE IF NOT EXISTS` no modifica
+   una tabla que ya existe: si el proyecto tenía una versión antigua de
+   `devices` (sin `account_id`/`public_key`), la sentencia se saltaba en
+   silencio y el `CREATE INDEX ... ON devices(device_id)` posterior
+   fallaba. Afectaba igual a `sessions`, `device_approvals` y
+   `registration_attempts`. → **§1.5** reconcilia las 255 columnas
+   declaradas con `ADD COLUMN IF NOT EXISTS` antes de crear índices y
+   políticas, y **§1.4** aborta pronto y con instrucciones si una columna
+   existe con un tipo incompatible.
 
 1. **`auth_challenge_request` no funcionaba nunca.** Declaraba
    `v_random BYTES`; el tipo `BYTES` no existe en PostgreSQL (es sintaxis
@@ -138,10 +150,43 @@ Todos verificados con el parser real de PostgreSQL (libpg_query).
   protegen limitando las columnas que la app selecciona, no por RLS: si
   necesitas garantía a nivel de base de datos, muévelos a una tabla
   aparte.
-- **RLS no ejecutada contra Postgres real.** El archivo está validado
-  sintácticamente con libpg_query y revisado política por política, pero
-  no se ha aplicado a un proyecto Supabase en vivo desde este entorno.
-  Verifica tras aplicarlo (§siguiente).
+- **Las políticas RLS no se han probado con usuarios reales.** El archivo
+  se aplica sin errores contra PostgreSQL 16.2 y las 66 políticas se
+  crean, pero no se ha ejercitado el comportamiento de cada política con
+  JWT reales de Supabase (`auth.uid()` se simuló). Verifica tras
+  aplicarlo (§siguiente).
+- **No aplicado a un proyecto Supabase en vivo desde este entorno.** Las
+  pruebas usan PostgreSQL 16.2 local con `auth.users`, `auth.uid()` y los
+  roles `anon`/`authenticated`/`service_role` simulados.
+
+## Validación ejecutada
+
+`novaapp_schema.sql` se ejecutó contra PostgreSQL 16.2 real en estos 13
+escenarios, todos con `ON_ERROR_STOP=1` y en una única transacción:
+
+| Escenario | Resultado |
+|---|---|
+| Base de datos limpia | PASA |
+| Base limpia, 3 pasadas seguidas (idempotencia) | PASA |
+| Proyecto con `devices` antigua (**el error reportado**) | PASA |
+| Proyecto con `sessions` antigua | PASA |
+| Proyecto con `device_approvals` antigua | PASA |
+| Proyecto con `registration_attempts` antigua | PASA |
+| Sobre `supabase_auth_migration.sql` legacy | PASA |
+| Sobre los 6 archivos legacy aplicados | PASA |
+| Los 6 legacy + 2 pasadas del esquema | PASA |
+| Legacy + datos sembrados + 2 pasadas (no destrucción) | PASA, 0 filas perdidas |
+| Limpia + `migrations/002_phase1_messaging.sql` | PASA |
+| Limpia + 002 aplicada dos veces | PASA |
+| Legacy + esquema + 002 | PASA |
+
+Además se comprueba que una columna con **tipo** incompatible (p. ej.
+`devices.device_id` como UUID) aborta en §1.4 con un mensaje accionable
+en vez de morir 300 líneas después con un error de clave foránea.
+
+Estado final verificado tras la ruta legacy completa: 34 tablas, 66
+políticas, `devices` con sus 14 columnas, los 4 índices críticos creados
+y las 7 tablas `realtime_*` con RLS activo y 0 políticas.
 
 ## Verificación tras aplicar
 

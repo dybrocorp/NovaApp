@@ -69,6 +69,371 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_bytes()
 
 
 -- =====================================================================
+--  §1.4  COMPROBACIÓN PREVIA DE TIPOS INCOMPATIBLES
+-- =====================================================================
+--  §1.5 puede AÑADIR columnas que falten, pero no puede convertir el
+--  tipo de una que ya existe. Si un despliegue antiguo dejó, por
+--  ejemplo, `devices.device_id` como UUID en vez de TEXT, el script
+--  moriría 300 líneas más abajo con un error críptico:
+--
+--      ERROR: foreign key constraint "sessions_device_id_fkey"
+--             cannot be implemented
+--
+--  Mejor abortar aquí, con un mensaje que diga qué arreglar y cómo.
+--  Convertir el tipo exige decidir qué hacer con los datos existentes,
+--  así que NO se hace automáticamente.
+-- =====================================================================
+
+DO $precheck$
+DECLARE
+  r        RECORD;
+  v_bad    TEXT := '';
+BEGIN
+  FOR r IN
+    SELECT c.table_name, c.column_name, c.data_type, e.expected
+    FROM (VALUES
+      ('devices',          'device_id',        'text'),
+      ('devices',          'nova_id',          'text'),
+      ('devices',          'account_id',       'text'),
+      ('devices',          'public_key',       'text'),
+      ('sessions',         'device_id',        'text'),
+      ('device_approvals', 'device_id',        'text'),
+      ('accounts',         'nova_id',          'text'),
+      ('realtime_messages','message_id',       'text'),
+      ('realtime_messages','sender_device_id', 'text')
+    ) AS e(tbl, col, expected)
+    JOIN information_schema.columns c
+      ON c.table_schema = 'public'
+     AND c.table_name   = e.tbl
+     AND c.column_name  = e.col
+    WHERE c.data_type <> e.expected
+  LOOP
+    v_bad := v_bad || format(
+      E'\n  - public.%s.%s es %s y debe ser %s.',
+      r.table_name, r.column_name, r.data_type, upper(r.expected)
+    );
+  END LOOP;
+
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION
+      E'NovaApp: hay columnas con un tipo incompatible:%\n\nEste script no las convierte automáticamente porque habría que decidir qué hacer con los datos existentes. Corrígelas a mano (por ejemplo: ALTER TABLE public.devices ALTER COLUMN device_id TYPE TEXT USING device_id::text;) y vuelve a ejecutar.',
+      v_bad;
+  END IF;
+END
+$precheck$;
+
+
+-- =====================================================================
+--  §1.5  RECONCILIACIÓN DE COLUMNAS (reparación de despliegues previos)
+-- =====================================================================
+--  POR QUÉ EXISTE ESTE BLOQUE
+--  --------------------------
+--  `CREATE TABLE IF NOT EXISTS` NO modifica una tabla que ya existe:
+--  si el proyecto tiene una versión ANTIGUA de `devices`, `sessions`,
+--  `device_approvals`, etc., la sentencia se salta en silencio y la
+--  tabla conserva sus columnas viejas. Los `CREATE INDEX` y las
+--  `CREATE POLICY` posteriores sí se ejecutan y fallan con:
+--
+--      ERROR: 42703: column "device_id" does not exist
+--
+--  Este bloque añade, de forma IDEMPOTENTE y NO DESTRUCTIVA, cualquier
+--  columna declarada en §2–§9 que falte en una tabla que YA EXISTE. No
+--  borra columnas, no cambia tipos y no toca datos: sólo hace
+--  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+--
+--  Va AQUÍ, antes de §2, y no al final, porque los `CREATE INDEX` que
+--  fallan están intercalados con los `CREATE TABLE` (p. ej.
+--  `devices_device_id_idx` justo después de crear `devices`). Un bloque
+--  de reparación colocado al final nunca llegaría a ejecutarse.
+--  Las tablas que todavía no existen no se tocan: las crea §2–§9 ya
+--  completas.
+--
+--  Las cláusulas NOT NULL se omiten a propósito: añadir NOT NULL a una
+--  tabla con filas existentes fallaría. Los DEFAULT sí se conservan.
+--
+--  Si una columna existe pero con OTRO tipo (p. ej. `device_id UUID`
+--  en vez de `TEXT`), este bloque no la toca: eso requiere una
+--  migración de datos manual y deliberada. El §16 la detecta y avisa.
+-- =====================================================================
+
+DO $reconcile$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+    ('users',                         'id',                    'UUID'),
+    ('users',                         'email',                 'TEXT'),
+    ('users',                         'name',                  'TEXT'),
+    ('users',                         'nova_id',               'TEXT'),
+    ('users',                         'display_name',          'TEXT'),
+    ('users',                         'avatar_url',            'TEXT'),
+    ('users',                         'public_key',            'TEXT'),
+    ('users',                         'x25519_identity_key',   'TEXT'),
+    ('users',                         'fcm_token',             'TEXT'),
+    ('users',                         'privacy_level',         'TEXT DEFAULT ''anyone'''),
+    ('users',                         'is_online',             'BOOLEAN DEFAULT false'),
+    ('users',                         'last_seen',             'TIMESTAMPTZ'),
+    ('users',                         'reports_count',         'INTEGER DEFAULT 0'),
+    ('users',                         'is_shadowbanned',       'BOOLEAN DEFAULT false'),
+    ('users',                         'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('users',                         'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('accounts',                      'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('accounts',                      'nova_id',               'TEXT'),
+    ('accounts',                      'pin_hash',              'TEXT'),
+    ('accounts',                      'pin_salt',              'TEXT'),
+    ('accounts',                      'display_name',          'TEXT DEFAULT ''Usuario'''),
+    ('accounts',                      'avatar_url',            'TEXT'),
+    ('accounts',                      'phone_number',          'TEXT'),
+    ('accounts',                      'is_verified',           'BOOLEAN DEFAULT false'),
+    ('accounts',                      'is_locked',             'BOOLEAN DEFAULT false'),
+    ('accounts',                      'failed_login_attempts', 'INTEGER DEFAULT 0'),
+    ('accounts',                      'locked_until',          'TIMESTAMPTZ'),
+    ('accounts',                      'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('accounts',                      'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('devices',                       'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('devices',                       'nova_id',               'TEXT'),
+    ('devices',                       'account_id',            'TEXT'),
+    ('devices',                       'device_id',             'TEXT'),
+    ('devices',                       'device_name',           'TEXT'),
+    ('devices',                       'platform',              'TEXT'),
+    ('devices',                       'os_version',            'TEXT'),
+    ('devices',                       'app_version',           'TEXT'),
+    ('devices',                       'push_token',            'TEXT'),
+    ('devices',                       'public_key',            'TEXT'),
+    ('devices',                       'status',                'TEXT DEFAULT ''active'''),
+    ('devices',                       'last_seen_at',          'TIMESTAMPTZ DEFAULT NOW()'),
+    ('devices',                       'registered_at',         'TIMESTAMPTZ DEFAULT NOW()'),
+    ('devices',                       'revoked_at',            'TIMESTAMPTZ'),
+    ('sessions',                      'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('sessions',                      'nova_id',               'TEXT'),
+    ('sessions',                      'device_id',             'TEXT'),
+    ('sessions',                      'jwt_token_hash',        'TEXT'),
+    ('sessions',                      'ip_address',            'TEXT'),
+    ('sessions',                      'user_agent',            'TEXT'),
+    ('sessions',                      'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('sessions',                      'last_active_at',        'TIMESTAMPTZ DEFAULT NOW()'),
+    ('sessions',                      'expires_at',            'TIMESTAMPTZ'),
+    ('auth_challenges',               'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('auth_challenges',               'nova_id',               'TEXT'),
+    ('auth_challenges',               'challenge',             'TEXT'),
+    ('auth_challenges',               'challenge_id',          'TEXT'),
+    ('auth_challenges',               'expires_at',            'TIMESTAMPTZ'),
+    ('auth_challenges',               'used',                  'BOOLEAN DEFAULT false'),
+    ('auth_challenges',               'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('signed_pre_keys',               'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('signed_pre_keys',               'nova_id',               'TEXT'),
+    ('signed_pre_keys',               'key_id',                'INTEGER'),
+    ('signed_pre_keys',               'public_key',            'TEXT'),
+    ('signed_pre_keys',               'signature',             'TEXT'),
+    ('signed_pre_keys',               'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('one_time_pre_keys',             'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('one_time_pre_keys',             'nova_id',               'TEXT'),
+    ('one_time_pre_keys',             'key_id',                'INTEGER'),
+    ('one_time_pre_keys',             'public_key',            'TEXT'),
+    ('one_time_pre_keys',             'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('crypto_sessions',               'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('crypto_sessions',               'sender_nova_id',        'TEXT'),
+    ('crypto_sessions',               'receiver_nova_id',      'TEXT'),
+    ('crypto_sessions',               'ephemeral_public_key',  'TEXT'),
+    ('crypto_sessions',               'shared_secret_id',      'TEXT'),
+    ('crypto_sessions',               'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('crypto_sessions',               'last_used_at',          'TIMESTAMPTZ DEFAULT NOW()'),
+    ('messages',                      'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('messages',                      'chat_id',               'TEXT'),
+    ('messages',                      'sender_id',             'TEXT'),
+    ('messages',                      'text',                  'TEXT'),
+    ('messages',                      'media_url',             'TEXT'),
+    ('messages',                      'type',                  'TEXT DEFAULT ''text'''),
+    ('messages',                      'timestamp',             'TEXT'),
+    ('messages',                      'is_me',                 'INTEGER DEFAULT 0'),
+    ('messages',                      'status',                'TEXT DEFAULT ''sent'''),
+    ('messages',                      'poll_data',             'JSONB'),
+    ('messages',                      'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('contacts',                      'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('contacts',                      'user_nova_id',          'TEXT'),
+    ('contacts',                      'contact_id',            'TEXT'),
+    ('contacts',                      'contact_name',          'TEXT'),
+    ('contacts',                      'verification_level',    'TEXT DEFAULT ''level1'''),
+    ('contacts',                      'last_message',          'TEXT'),
+    ('contacts',                      'last_message_time',     'TIMESTAMPTZ'),
+    ('contacts',                      'is_archived',           'INTEGER DEFAULT 0'),
+    ('contacts',                      'is_blocked',            'INTEGER DEFAULT 0'),
+    ('contacts',                      'is_favorite',           'INTEGER DEFAULT 0'),
+    ('contacts',                      'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('contacts',                      'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('call_history',                  'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('call_history',                  'user_nova_id',          'TEXT'),
+    ('call_history',                  'contact_id',            'TEXT'),
+    ('call_history',                  'contact_name',          'TEXT'),
+    ('call_history',                  'call_type',             'TEXT'),
+    ('call_history',                  'direction',             'TEXT'),
+    ('call_history',                  'duration',              'INTEGER'),
+    ('call_history',                  'timestamp',             'TIMESTAMPTZ DEFAULT NOW()'),
+    ('call_history',                  'status',                'TEXT DEFAULT ''completed'''),
+    ('reports',                       'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('reports',                       'reporter_id',           'UUID'),
+    ('reports',                       'reported_id',           'UUID'),
+    ('reports',                       'reason',                'TEXT'),
+    ('reports',                       'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('blocked_users',                 'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('blocked_users',                 'blocker_id',            'UUID'),
+    ('blocked_users',                 'blocked_id',            'UUID'),
+    ('blocked_users',                 'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('message_reactions',             'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('message_reactions',             'message_id',            'UUID'),
+    ('message_reactions',             'nova_id',               'TEXT'),
+    ('message_reactions',             'emoji',                 'TEXT'),
+    ('message_reactions',             'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('typing_indicators',             'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('typing_indicators',             'chat_id',               'TEXT'),
+    ('typing_indicators',             'nova_id',               'TEXT'),
+    ('typing_indicators',             'is_typing',             'BOOLEAN DEFAULT false'),
+    ('typing_indicators',             'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('groups',                        'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('groups',                        'name',                  'TEXT'),
+    ('groups',                        'description',           'TEXT'),
+    ('groups',                        'avatar_url',            'TEXT'),
+    ('groups',                        'creator_nova_id',       'TEXT'),
+    ('groups',                        'is_active',             'BOOLEAN DEFAULT true'),
+    ('groups',                        'member_count',          'INTEGER DEFAULT 1'),
+    ('groups',                        'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('groups',                        'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('group_members',                 'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('group_members',                 'group_id',              'UUID'),
+    ('group_members',                 'nova_id',               'TEXT'),
+    ('group_members',                 'role',                  'TEXT DEFAULT ''member'''),
+    ('group_members',                 'display_name',          'TEXT'),
+    ('group_members',                 'is_muted',              'BOOLEAN DEFAULT false'),
+    ('group_members',                 'joined_at',             'TIMESTAMPTZ DEFAULT NOW()'),
+    ('group_messages',                'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('group_messages',                'group_id',              'UUID'),
+    ('group_messages',                'sender_id',             'TEXT'),
+    ('group_messages',                'text',                  'TEXT'),
+    ('group_messages',                'type',                  'TEXT DEFAULT ''text'''),
+    ('group_messages',                'is_edited',             'BOOLEAN DEFAULT false'),
+    ('group_messages',                'edited_at',             'TIMESTAMPTZ'),
+    ('group_messages',                'is_deleted',            'BOOLEAN DEFAULT false'),
+    ('group_messages',                'deleted_at',            'TIMESTAMPTZ'),
+    ('group_messages',                'reply_to_id',           'UUID'),
+    ('group_messages',                'reactions_count',       'INTEGER DEFAULT 0'),
+    ('group_messages',                'mentions',              'TEXT[]'),
+    ('group_messages',                'timestamp',             'TIMESTAMPTZ DEFAULT NOW()'),
+    ('group_messages',                'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('group_invites',                 'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('group_invites',                 'group_id',              'UUID'),
+    ('group_invites',                 'token',                 'TEXT'),
+    ('group_invites',                 'created_by',            'TEXT'),
+    ('group_invites',                 'max_uses',              'INTEGER DEFAULT 50'),
+    ('group_invites',                 'uses',                  'INTEGER DEFAULT 0'),
+    ('group_invites',                 'expires_at',            'TIMESTAMPTZ'),
+    ('group_invites',                 'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('group_sender_keys',             'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('group_sender_keys',             'group_id',              'UUID'),
+    ('group_sender_keys',             'nova_id',               'TEXT'),
+    ('group_sender_keys',             'encrypted_key',         'TEXT'),
+    ('group_sender_keys',             'key_version',           'INTEGER DEFAULT 0'),
+    ('group_sender_keys',             'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('pinned_messages',               'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('pinned_messages',               'group_id',              'UUID'),
+    ('pinned_messages',               'message_id',            'UUID'),
+    ('pinned_messages',               'pinned_by',             'TEXT'),
+    ('pinned_messages',               'pinned_at',             'TIMESTAMPTZ DEFAULT NOW()'),
+    ('calls',                         'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('calls',                         'caller_nova_id',        'TEXT'),
+    ('calls',                         'callee_nova_id',        'TEXT'),
+    ('calls',                         'group_id',              'UUID'),
+    ('calls',                         'call_type',             'TEXT DEFAULT ''audio'''),
+    ('calls',                         'status',                'TEXT DEFAULT ''ringing'''),
+    ('calls',                         'started_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('calls',                         'answered_at',           'TIMESTAMPTZ'),
+    ('calls',                         'ended_at',              'TIMESTAMPTZ'),
+    ('calls',                         'duration',              'INTEGER'),
+    ('calls',                         'end_reason',            'TEXT'),
+    ('calls',                         'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('call_participants',             'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('call_participants',             'call_id',               'UUID'),
+    ('call_participants',             'nova_id',               'TEXT'),
+    ('call_participants',             'joined_at',             'TIMESTAMPTZ DEFAULT NOW()'),
+    ('call_participants',             'left_at',               'TIMESTAMPTZ'),
+    ('call_participants',             'is_muted',              'BOOLEAN DEFAULT false'),
+    ('call_participants',             'has_video',             'BOOLEAN DEFAULT false'),
+    ('user_settings',                 'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('user_settings',                 'nova_id',               'TEXT'),
+    ('user_settings',                 'last_seen_visibility',  'TEXT DEFAULT ''contacts'''),
+    ('user_settings',                 'profile_photo_privacy', 'TEXT DEFAULT ''contacts'''),
+    ('user_settings',                 'read_receipts_enabled', 'BOOLEAN DEFAULT true'),
+    ('user_settings',                 'typing_indicators',     'BOOLEAN DEFAULT true'),
+    ('user_settings',                 'notifications_enabled', 'BOOLEAN DEFAULT true'),
+    ('user_settings',                 'settings_json',         'JSONB DEFAULT ''{}''::jsonb'),
+    ('user_settings',                 'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('user_settings',                 'updated_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('device_approvals',              'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('device_approvals',              'nova_id',               'TEXT'),
+    ('device_approvals',              'device_id',             'TEXT'),
+    ('device_approvals',              'requesting_device',     'TEXT'),
+    ('device_approvals',              'approving_device',      'TEXT'),
+    ('device_approvals',              'status',                'TEXT DEFAULT ''pending'''),
+    ('device_approvals',              'approval_code',         'TEXT'),
+    ('device_approvals',              'expires_at',            'TIMESTAMPTZ'),
+    ('device_approvals',              'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('device_approvals',              'resolved_at',           'TIMESTAMPTZ'),
+    ('rate_limits',                   'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('rate_limits',                   'identifier',            'TEXT'),
+    ('rate_limits',                   'action',                'TEXT'),
+    ('rate_limits',                   'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('registration_attempts',         'id',                    'UUID DEFAULT uuid_generate_v4()'),
+    ('registration_attempts',         'ip_address',            'TEXT'),
+    ('registration_attempts',         'device_id',             'TEXT'),
+    ('registration_attempts',         'nova_id',               'TEXT'),
+    ('registration_attempts',         'successful',            'BOOLEAN DEFAULT false'),
+    ('registration_attempts',         'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('realtime_conversation_members', 'conversation_id',       'TEXT'),
+    ('realtime_conversation_members', 'account_id',            'TEXT'),
+    ('realtime_conversation_members', 'created_at',            'TIMESTAMPTZ DEFAULT NOW()'),
+    ('realtime_contacts',             'account_id',            'TEXT'),
+    ('realtime_contacts',             'peer_id',               'TEXT'),
+    ('realtime_contacts',             'blocked',               'BOOLEAN DEFAULT false'),
+    ('realtime_presence_audience',    'subject_id',            'TEXT'),
+    ('realtime_presence_audience',    'viewer_id',             'TEXT'),
+    ('realtime_messages',             'message_id',            'TEXT'),
+    ('realtime_messages',             'conversation_id',       'TEXT'),
+    ('realtime_messages',             'sender_account_id',     'TEXT'),
+    ('realtime_messages',             'sender_device_id',      'TEXT'),
+    ('realtime_messages',             'ciphertext',            'TEXT'),
+    ('realtime_messages',             'header_type',           'TEXT'),
+    ('realtime_messages',             'server_seq',            'BIGINT'),
+    ('realtime_messages',             'received_at_ms',        'BIGINT'),
+    ('realtime_messages',             'client_ts_ms',          'BIGINT'),
+    ('realtime_events',               'conversation_id',       'TEXT'),
+    ('realtime_events',               'type',                  'TEXT'),
+    ('realtime_events',               'server_seq',            'BIGINT'),
+    ('realtime_events',               'log_seq',               'BIGINT'),
+    ('realtime_events',               'at_ms',                 'BIGINT'),
+    ('realtime_events',               'payload',               'JSONB'),
+    ('realtime_cursors',              'conversation_id',       'TEXT'),
+    ('realtime_cursors',              'last_seq',              'BIGINT DEFAULT 0'),
+    ('realtime_cursors',              'last_log_seq',          'BIGINT DEFAULT 0'),
+    ('realtime_presence',             'account_id',            'TEXT'),
+    ('realtime_presence',             'status',                'TEXT'),
+    ('realtime_presence',             'last_seen_ms',          'BIGINT')
+    ) AS t(tbl, col, coldef)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = r.tbl AND table_type = 'BASE TABLE'
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS %I %s',
+        r.tbl, r.col, r.coldef
+      );
+    END IF;
+  END LOOP;
+END
+$reconcile$;
+
+
+-- =====================================================================
 --  §2  IDENTIDAD: users, accounts, devices, sessions, auth_challenges
 -- =====================================================================
 
@@ -1505,6 +1870,53 @@ BEGIN
   FROM pg_policies WHERE schemaname = 'public';
 
   RAISE NOTICE 'NovaApp: % tablas y % políticas RLS en el esquema public.', v_tables, v_policies;
+END
+$$;
+
+-- ---------------------------------------------------------------------
+-- 16.1  Columnas críticas con un TIPO incompatible.
+--
+-- §1.5 añade columnas que faltan, pero NUNCA cambia el tipo de una que
+-- ya existe: convertir datos es una decisión manual. Este bloque avisa
+-- si un despliegue antiguo dejó una columna con un tipo que romperá al
+-- servidor realtime o a las claves foráneas.
+-- ---------------------------------------------------------------------
+DO $$
+DECLARE
+  r        RECORD;
+  v_issues INTEGER := 0;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('devices',          'device_id',         'text'),
+      ('devices',          'account_id',        'text'),
+      ('devices',          'nova_id',           'text'),
+      ('devices',          'public_key',        'text'),
+      ('sessions',         'device_id',         'text'),
+      ('device_approvals', 'device_id',         'text'),
+      ('accounts',         'nova_id',           'text'),
+      ('realtime_messages','message_id',        'text'),
+      ('realtime_messages','sender_device_id',  'text')
+    ) AS t(tbl, col, expected)
+  LOOP
+    PERFORM 1
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND c.table_name   = r.tbl
+      AND c.column_name  = r.col
+      AND c.data_type   <> r.expected;
+
+    IF FOUND THEN
+      v_issues := v_issues + 1;
+      RAISE WARNING
+        'NovaApp: %.% tiene un tipo distinto del esperado (%). Requiere migración manual de datos.',
+        r.tbl, r.col, r.expected;
+    END IF;
+  END LOOP;
+
+  IF v_issues = 0 THEN
+    RAISE NOTICE 'NovaApp: tipos de columnas críticas correctos.';
+  END IF;
 END
 $$;
 
