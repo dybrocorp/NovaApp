@@ -125,6 +125,15 @@ class MessageReceiveService {
     return ingest(envelope, emitDelivered: emitDelivered);
   }
 
+  /// FASE 1 §21/§22 (port): consume `message.deleted` / `message.expired`
+  /// events (live or sync replay — replayed tombstones carry ids only).
+  /// Erases this device's envelope row for the logical id.
+  Future<void> onTombstone(Map<String, dynamic> payload) async {
+    final messageId = payload['message_id'];
+    if (messageId is! String || messageId.isEmpty) return;
+    await _inbox.redact(MessageId(messageId));
+  }
+
   /// Full §13 pipeline for one envelope.
   Future<ReceiveResult> ingest(
     MessageEnvelopeV1 envelope, {
