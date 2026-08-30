@@ -31,6 +31,8 @@ export interface RealtimeServerConfig {
 
   // ===== Sessions =====
   sessionTtlMs: number;
+  /** FASE 1 §22: how often the server sweeps elapsed expires_at_ms. */
+  messagePurgeIntervalMs: number;
 
   // ===== Rate limits (per socket; token bucket, burst = rate) =====
   authPerMinute: number;
@@ -94,6 +96,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RealtimeSer
     authLockoutScopes: scopes.length > 0 ? scopes : ['device', 'ip'],
 
     sessionTtlMs: intFromEnv('SESSION_TTL_MS', 24 * 60 * 60 * 1000),
+    messagePurgeIntervalMs: intFromEnv('MESSAGE_PURGE_INTERVAL_MS', 5_000),
 
     // Same values as SocketRateLimitPresets (client) — the server applies
     // its own limits; equal by design so honest clients never trip them.

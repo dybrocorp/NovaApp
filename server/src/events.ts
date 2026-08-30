@@ -21,6 +21,10 @@ export const SocketEvent = {
   messageDelivered: 'message.delivered',
   messageRead: 'message.read',
   messageTyping: 'message.typing',
+  // FASE 1 §21/§22 — delete-for-everyone tombstone + expiry purge.
+  messageDelete: 'message.delete',
+  messageDeleted: 'message.deleted',
+  messageExpired: 'message.expired',
 
   // ===== SYNC =====
   syncRequest: 'sync.request',
@@ -77,6 +81,7 @@ export const CLIENT_EMITTABLE_EVENTS: ReadonlySet<string> = new Set<string>([
   SocketEvent.messageTyping,
   SocketEvent.messageRead,
   SocketEvent.messageDelivered,
+  SocketEvent.messageDelete,
   SocketEvent.syncRequest,
   SocketEvent.presenceUpdate,
   SocketEvent.callOffer,
