@@ -121,6 +121,8 @@ export class RealtimeServer {
   private readonly ipConnections = new Map<string, TokenBucketRateLimiter>();
   private startedAtMs = Date.now();
 
+  private purgeTimer?: ReturnType<typeof setInterval>;
+
   constructor(options: RealtimeServerOptions = {}) {
     this.config = {
       ...DEFAULT_CONFIG,
@@ -144,6 +146,13 @@ export class RealtimeServer {
       clock: this.clock,
     });
     this.log = new SecurityLog({ sink: options.logSink });
+
+    // FASE 1 §22: elapsed expirations are PURGED server-side regardless of
+    // client liveness. unref(): the sweep must never keep the process alive.
+    this.purgeTimer = setInterval(() => {
+      void this.purgeExpired();
+    }, this.config.messagePurgeIntervalMs);
+    this.purgeTimer.unref?.();
 
     this.httpServer = createServer();
     this.io = new SocketIoServer(this.httpServer, {
@@ -187,6 +196,7 @@ export class RealtimeServer {
 
   /** Graceful shutdown: broadcast system.shutdown, then close. */
   async stop(): Promise<void> {
+    if (this.purgeTimer) clearInterval(this.purgeTimer);
     this.io.emit(SocketEvent.systemShutdown, { reason: 'server_shutdown' });
     await new Promise((resolve) => setTimeout(resolve, 30));
     await new Promise<void>((resolve) => {
@@ -271,6 +281,9 @@ export class RealtimeServer {
     });
     socket.on(SocketEvent.messageDelivered, (payload: unknown) => {
       void this.onMessageDelivered(socket, payload);
+    });
+    socket.on(SocketEvent.messageDelete, (payload: unknown) => {
+      void this.onMessageDelete(socket, payload);
     });
     socket.on(SocketEvent.messageRead, (payload: unknown) => {
       void this.onMessageRead(socket, payload);
@@ -655,6 +668,7 @@ export class RealtimeServer {
       serverSeq,
       receivedAtMs,
       clientTimestampMs: envelope.clientTimestampMs,
+      expiresAtMs: envelope.expiresAtMs,
     };
     await this.store.persistMessage(stored);
 
@@ -739,6 +753,103 @@ export class RealtimeServer {
         .to(`conv:${envelope.conversationId}`)
         .except(socket.id)
         .emit(SocketEvent.messageNew, { ...wire, log_seq: logSeq });
+    }
+  }
+
+  /**
+   * FASE 1 §21: delete-for-everyone — SERVER side half.
+   *
+   * Authorization: only the SENDER ACCOUNT may redact, addressed by the
+   * LOGICAL message id (every per-device copy of that sender is redacted at
+   * once). Redaction destroys the stored ciphertext and rewrites the event
+   * log entry so sync replay yields a tombstone — a device that syncs later
+   * can never fetch content deleted before it connected. The recipient-side
+   * erase of DECRYPTED copies travels as an encrypted control message
+   * through the normal send path (the server never sees its meaning).
+   */
+  private async onMessageDelete(socket: Socket, payload: unknown): Promise<void> {
+    const data = socket.data as SocketData;
+    const session = this.requireSession(socket, SocketEvent.messageDelete);
+    if (!session) return;
+    if (!this.consumeRate(data, 'message')) {
+      socket.emit(SocketEvent.systemError, {
+        code: SocketErrorCode.rateLimited,
+        event: SocketEvent.messageDelete,
+      });
+      return;
+    }
+    const record = this.payloadObject(payload);
+    const conversationId = record['conversation_id'];
+    const messageId = record['message_id'];
+    if (
+      typeof conversationId !== 'string' ||
+      conversationId.length === 0 ||
+      typeof messageId !== 'string' ||
+      messageId.length === 0
+    ) {
+      socket.emit(SocketEvent.systemError, {
+        code: SocketErrorCode.payloadInvalid,
+        event: SocketEvent.messageDelete,
+      });
+      return;
+    }
+    const atMs = this.clock();
+    const outcome = await this.store.redactMessages(
+      conversationId,
+      messageId,
+      session.accountId,
+      'deleted',
+      atMs,
+    );
+    if (outcome.redacted === 0) {
+      // Unknown, foreign, or already redacted: one generic rejection —
+      // existence is never leaked to non-owners.
+      socket.emit(SocketEvent.systemError, {
+        code: SocketErrorCode.forbidden,
+        event: SocketEvent.messageDelete,
+        ...(outcome.already === true ? { already_tombstoned: true } : {}),
+      });
+      return;
+    }
+    const tombstone = {
+      conversation_id: conversationId,
+      message_id: messageId,
+      by_account_id: session.accountId,
+      at_ms: atMs,
+      ...(outcome.tombstoneServerSeq !== undefined
+        ? { server_seq: outcome.tombstoneServerSeq }
+        : {}),
+      ...(outcome.tombstoneLogSeq !== undefined
+        ? { log_seq: outcome.tombstoneLogSeq }
+        : {}),
+    };
+    // The whole room INCLUDING the requesting device (its own local copy
+    // must erase too); ids + flags only.
+    this.io
+      .to(`conv:${conversationId}`)
+      .emit(SocketEvent.messageDeleted, tombstone);
+    this.log.event('message.tombstoned', {
+      account_id: session.accountId,
+      device_id: session.deviceId,
+      conversation_id: conversationId,
+      message_id: messageId,
+      copies: outcome.redacted,
+    });
+  }
+
+  /** FASE 1 §22: periodic expiry sweep — purge ciphertext and notify. */
+  private async purgeExpired(): Promise<void> {
+    const hits = await this.store.purgeExpiredMessages(this.clock());
+    for (const hit of hits) {
+      this.io.to(`conv:${hit.conversationId}`).emit(SocketEvent.messageExpired, {
+        conversation_id: hit.conversationId,
+        message_id: hit.messageId,
+        at_ms: this.clock(),
+        log_seq: hit.logSeq,
+      });
+    }
+    if (hits.length > 0) {
+      this.log.event('message.expired_purge', { purged: hits.length });
     }
   }
 

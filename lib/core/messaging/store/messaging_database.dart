@@ -167,6 +167,22 @@ class MessagingDatabase {
         disappearing_ttl_s INTEGER
       )
     ''');
+
+    // ---- Pending sends (FASE 1 port §12) ------------------------------
+    // PRE-encryption durable queue for cold-offline sends (no session /
+    // no topology yet). Keyed by the LOGICAL message id => re-queue is a
+    // no-op, flush is exactly-once. Device-local, like all msg_* tables.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS msg_pending_send (
+        message_id      TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        self_account_id TEXT NOT NULL,
+        peer_account_id TEXT NOT NULL,
+        body_json       TEXT NOT NULL,
+        created_at_ms   INTEGER NOT NULL,
+        expires_at_ms   INTEGER
+      )
+    ''');
   }
 
   Future<void> close() async {

@@ -24,6 +24,7 @@ import '../model/message_body.dart';
 import '../model/message_envelope_v1.dart';
 import '../model/message_ids.dart';
 import '../store/outbox_store.dart';
+import '../store/pending_send_store.dart';
 import 'conversation_service.dart';
 
 /// Transport abstraction. Implemented over `WebSocketService` in the app;
@@ -70,6 +71,8 @@ class SendResult {
     required this.queuedDevices,
     required this.transmitted,
     this.rejectedReason,
+    this.queuedOffline = false,
+    this.skippedDevices = const <String>[],
   });
 
   final MessageId messageId;
@@ -84,6 +87,17 @@ class SendResult {
   /// Set when the send was refused outright (blocked peer, no devices).
   final String? rejectedReason;
 
+  /// FASE 1 §12 (port): the content was durably queued PRE-ENCRYPTION
+  /// (cold offline — no session/topology yet) and will be encrypted by
+  /// [MessageSendService.flushPending] after authentication. NOT an error.
+  final bool queuedOffline;
+
+  /// FASE 1 §15 (port): recipient devices that could NOT be encrypted for
+  /// (e.g. no establishable session). A partial fan-out is never silent:
+  /// the sender UI must surface these device names (content would be
+  /// missing on those devices otherwise).
+  final List<String> skippedDevices;
+
   bool get isRejected => rejectedReason != null;
 }
 
@@ -95,6 +109,7 @@ class MessageSendService {
     required OutboxStore outbox,
     required MessageTransport transport,
     required BlockPolicy blockPolicy,
+    PendingSendStore? pendingSends,
     int Function()? clock,
   })  : _conversations = conversations,
         _encryption = encryption,
@@ -102,6 +117,7 @@ class MessageSendService {
         _outbox = outbox,
         _transport = transport,
         _blockPolicy = blockPolicy,
+        _pending = pendingSends,
         _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch);
 
   final ConversationService _conversations;
@@ -110,6 +126,10 @@ class MessageSendService {
   final OutboxStore _outbox;
   final MessageTransport _transport;
   final BlockPolicy _blockPolicy;
+
+  /// Optional (FASE 1 port): enables durable cold-offline queueing. Without
+  /// it the previous loud-failure semantics are preserved.
+  final PendingSendStore? _pending;
   final int Function() _clock;
 
   /// Encrypts, persists and (if online) transmits a message.
@@ -154,6 +174,7 @@ class MessageSendService {
 
     final nowMs = _clock();
     final envelopes = <MessageEnvelopeV1>[];
+    final skippedDevices = <String>[];
 
     // One ciphertext per target device: each has its own ratchet session,
     // so the same plaintext yields N distinct ciphertexts (§15).
@@ -162,7 +183,12 @@ class MessageSendService {
         conversationId: conversationId,
         recipientDeviceId: target.deviceId,
       );
-      if (state == null) continue; // no session establishable; skip device
+      // FASE 1 §15/§12 (port): unencryptable devices are tracked — a
+      // partial fan-out is reported, never silently skipped.
+      if (state == null) {
+        skippedDevices.add(target.deviceId.value);
+        continue;
+      }
 
       final encrypted = await _encryption.encrypt(
         state: state,
@@ -197,11 +223,34 @@ class MessageSendService {
     }
 
     if (envelopes.isEmpty) {
+      // COLD OFFLINE (no session yet for ANY target): the user's message
+      // must not evaporate — queue it durably PRE-ENCRYPTION under the same
+      // logical id and finish it in flushPending() once authenticated.
+      final pending = _pending;
+      if (pending != null && skippedDevices.isNotEmpty) {
+        await pending.enqueue(
+          messageId: id,
+          conversationId: conversationId,
+          selfAccountId: selfAccountId,
+          peerAccountId: peerAccountId,
+          body: body,
+          expiresAtMs: expiresAtMs,
+          nowMs: nowMs,
+        );
+        return SendResult(
+          messageId: id,
+          queuedDevices: 0,
+          transmitted: false,
+          queuedOffline: true,
+          skippedDevices: skippedDevices,
+        );
+      }
       return SendResult(
         messageId: id,
         queuedDevices: 0,
         transmitted: false,
         rejectedReason: 'NO_SESSION',
+        skippedDevices: skippedDevices,
       );
     }
 
@@ -213,7 +262,42 @@ class MessageSendService {
       messageId: id,
       queuedDevices: envelopes.length,
       transmitted: transmitted,
+      skippedDevices: skippedDevices,
     );
+  }
+
+  /// FASE 1 §12 (port): advance the durable PRE-ENCRYPTION queue — call
+  /// after (re-)authentication. Each item is retried in enqueue order with
+  /// its ORIGINAL logical id (server-side dedup makes the whole path
+  /// exactly-once). Items that still cannot be encrypted REMAIN queued;
+  /// nothing is ever silently dropped. Returns how many left the queue.
+  Future<int> flushPending({int limit = 50}) async {
+    final pending = _pending;
+    if (pending == null) return 0;
+    var advanced = 0;
+    for (final item in await pending.due(limit: limit)) {
+      final body = MessageBody.decode(item.bodyJson);
+      if (body == null) {
+        // Our own durable row is malformed (disk corruption): drop it
+        // LOUDLY via the returned count only — a poison pill must not
+        // block every later send.
+        await pending.remove(item.messageId);
+        continue;
+      }
+      final result = await send(
+        conversationId: item.conversationId,
+        selfAccountId: item.selfAccountId,
+        peerAccountId: item.peerAccountId,
+        body: body,
+        messageId: item.messageId,
+        expiresAtMs: item.expiresAtMs,
+      );
+      if (!result.isRejected && !result.queuedOffline) {
+        await pending.remove(item.messageId);
+        advanced++;
+      }
+    }
+    return advanced;
   }
 
   /// Transmits due Outbox entries. Safe to call repeatedly (on reconnect,

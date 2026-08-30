@@ -39,12 +39,34 @@ export interface StoredMessage {
   serverSeq: number;
   receivedAtMs: number;
   clientTimestampMs?: number;
+  /** FASE 1 §22: server-enforced disappearing time (epoch ms). */
+  expiresAtMs?: number;
+  /** FASE 1 §21: deleted-for-everyone / expired ⇒ ciphertext purged. */
+  redacted?: boolean;
 }
 
 export type RealtimeEventType =
   | 'message.new'
   | 'message.delivered'
-  | 'message.read';
+  | 'message.read'
+  /* FASE 1: tombstones (replayable history — never resurrects ciphertext) */
+  | 'message.deleted'
+  | 'message.expired';
+
+export interface RedactOutcome {
+  redacted: number;
+  /** True when sender-owned copies exist but are ALREADY redacted
+   *  (idempotent repeat). */
+  already?: boolean;
+  tombstoneLogSeq?: number;
+  tombstoneServerSeq?: number;
+}
+
+export interface ExpiryHit {
+  conversationId: string;
+  messageId: string;
+  logSeq: number;
+}
 
 /** An event as APPENDED by a handler (log_seq is assigned by the store). */
 export interface AppendableEvent {
@@ -74,6 +96,20 @@ export interface RealtimeStore {
 
   persistMessage(message: StoredMessage): Promise<void>;
   findMessage(messageId: string): Promise<StoredMessage | null>;
+
+  /** FASE 1 §21/§22: redact every sender-owned per-device copy of one
+   *  logical message, rewrite the stored log entry so sync replay yields a
+   *  tombstone instead of ciphertext, and append the tombstone event. */
+  redactMessages(
+    conversationId: string,
+    messageId: string,
+    byAccountId: string,
+    reason: 'deleted' | 'expired',
+    atMs: number,
+  ): Promise<RedactOutcome>;
+  /** FASE 1 §22: redact all messages whose expires_at_ms elapsed. Returns
+   *  one hit per (conversation, logical id) for room fan-out. */
+  purgeExpiredMessages(nowMs: number): Promise<ExpiryHit[]>;
 
   /** Appends to the per-conversation event log; returns the new log_seq. */
   appendEvent(event: AppendableEvent): Promise<number>;
@@ -109,6 +145,90 @@ export class MemoryRealtimeStore implements RealtimeStore {
 
   async findMessage(messageId: string): Promise<StoredMessage | null> {
     return this.messages.get(messageId) ?? null;
+  }
+
+  async redactMessages(
+    conversationId: string,
+    messageId: string,
+    byAccountId: string,
+    reason: 'deleted' | 'expired',
+    atMs: number,
+  ): Promise<RedactOutcome> {
+    const logical = (key: string): boolean =>
+      key === messageId || key.startsWith(`${messageId}#`);
+    let redacted = 0;
+    let already = false;
+    let maxSeq = 0;
+    for (const [key, msg] of [...this.messages]) {
+      if (msg.conversationId !== conversationId || !logical(key)) continue;
+      if (msg.senderAccountId !== byAccountId) continue;
+      if (msg.redacted) {
+        already = true;
+        continue;
+      }
+      this.messages.set(key, { ...msg, redacted: true, ciphertextBase64: '' });
+      redacted += 1;
+      if (msg.serverSeq > maxSeq) maxSeq = msg.serverSeq;
+    }
+    if (redacted === 0) return { redacted: 0, already };
+    // Rewrite the ORIGINAL log entry: a late-syncing device must receive
+    // the tombstone view, never the (now destroyed) ciphertext.
+    const log = this.eventLog.get(conversationId) ?? [];
+    for (let i = 0; i < log.length; i++) {
+      const ev = log[i];
+      if (ev.type === 'message.new' && ev.payload['message_id'] === messageId) {
+        log[i] = {
+          ...ev,
+          payload: {
+            ...ev.payload,
+            ciphertext: null,
+            deleted: true,
+            deleted_reason: reason,
+            deleted_at_ms: atMs,
+          },
+        };
+      }
+    }
+    const tombstoneLogSeq = await this.appendEvent({
+      conversationId,
+      type: reason === 'deleted' ? 'message.deleted' : 'message.expired',
+      serverSeq: maxSeq,
+      atMs,
+      payload: {
+        message_id: messageId,
+        conversation_id: conversationId,
+        ...(reason === 'deleted' ? { by_account_id: byAccountId } : {}),
+      },
+    });
+    return { redacted, tombstoneLogSeq, tombstoneServerSeq: maxSeq };
+  }
+
+  async purgeExpiredMessages(nowMs: number): Promise<ExpiryHit[]> {
+    const hits: ExpiryHit[] = [];
+    const seen = new Set<string>();
+    for (const [key, msg] of [...this.messages]) {
+      if (msg.redacted) continue;
+      if (msg.expiresAtMs === undefined || msg.expiresAtMs > nowMs) continue;
+      const logicalId = key.split('#')[0];
+      const dedupe = `${msg.conversationId}|${logicalId}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      const out = await this.redactMessages(
+        msg.conversationId,
+        logicalId,
+        msg.senderAccountId,
+        'expired',
+        nowMs,
+      );
+      if (out.redacted > 0) {
+        hits.push({
+          conversationId: msg.conversationId,
+          messageId: logicalId,
+          logSeq: out.tombstoneLogSeq ?? 0,
+        });
+      }
+    }
+    return hits;
   }
 
   async appendEvent(event: AppendableEvent): Promise<number> {

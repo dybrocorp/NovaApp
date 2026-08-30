@@ -22,8 +22,10 @@
  */
 import type {
   AppendableEvent,
+  ExpiryHit,
   PresenceRecord,
   RealtimeStore,
+  RedactOutcome,
   StoredEvent,
   StoredMessage,
 } from './realtime_store.js';
@@ -146,11 +148,104 @@ export class SupabaseRealtimeStore implements RealtimeStore {
       sender_account_id: message.senderAccountId,
       sender_device_id: message.senderDeviceId,
       ciphertext: message.ciphertextBase64,
+      expires_at_ms: message.expiresAtMs ?? null,
+      redacted: false,
       header_type: message.headerType,
       server_seq: message.serverSeq,
       received_at_ms: message.receivedAtMs,
       client_ts_ms: message.clientTimestampMs ?? null,
     });
+  }
+
+  async redactMessages(
+    conversationId: string,
+    messageId: string,
+    byAccountId: string,
+    reason: 'deleted' | 'expired',
+    atMs: number,
+  ): Promise<RedactOutcome> {
+    type RedactRow = { message_id: string; sender_account_id: string; redacted: unknown; server_seq: string | number };
+    const rows = await this.rest<RedactRow>(
+      'GET',
+      `realtime_messages?conversation_id=eq.${encodeURIComponent(conversationId)}&select=message_id,sender_account_id,redacted,server_seq&limit=1000`,
+      undefined,
+      'return=representation',
+    );
+    const logical = (key: string): boolean =>
+      key === messageId || key.startsWith(`${messageId}#`);
+    const victims = rows.filter(
+      (r) => logical(r.message_id) && r.sender_account_id === byAccountId && r.redacted !== true,
+    );
+    const already = rows.some((r) => logical(r.message_id) && r.redacted === true);
+    if (victims.length === 0) return { redacted: 0, already };
+    let maxSeq = 0;
+    for (const v of victims) {
+      const seq = Number(v.server_seq);
+      if (seq > maxSeq) maxSeq = seq;
+      await this.rest('PATCH', `realtime_messages?message_id=eq.${encodeURIComponent(v.message_id)}`, {
+        ciphertext: '',
+        redacted: true,
+        redacted_at_ms: atMs,
+      });
+    }
+    type EvRow = { log_seq: number | string; payload: Record<string, unknown> | null };
+    const events = await this.rest<EvRow>(
+      'GET',
+      `realtime_events?conversation_id=eq.${encodeURIComponent(conversationId)}&type=eq.message.new&select=log_seq,payload&limit=2000`,
+      undefined,
+      'return=representation',
+    );
+    for (const ev of events) {
+      if ((ev.payload ?? {})['message_id'] !== messageId) continue;
+      await this.rest(
+        'PATCH',
+        `realtime_events?conversation_id=eq.${encodeURIComponent(conversationId)}&log_seq=eq.${Number(ev.log_seq)}`,
+        {
+          payload: {
+            ...(ev.payload ?? {}),
+            ciphertext: null,
+            deleted: true,
+            deleted_reason: reason,
+            deleted_at_ms: atMs,
+          },
+        },
+      );
+    }
+    const tombstoneLogSeq = await this.appendEvent({
+      conversationId,
+      type: reason === 'deleted' ? 'message.deleted' : 'message.expired',
+      serverSeq: maxSeq,
+      atMs,
+      payload: {
+        message_id: messageId,
+        conversation_id: conversationId,
+        ...(reason === 'deleted' ? { by_account_id: byAccountId } : {}),
+      },
+    });
+    return { redacted: victims.length, tombstoneLogSeq, tombstoneServerSeq: maxSeq };
+  }
+
+  async purgeExpiredMessages(nowMs: number): Promise<ExpiryHit[]> {
+    type ExpRow = { conversation_id: string; message_id: string; sender_account_id: string };
+    const rows = await this.rest<ExpRow>(
+      'GET',
+      `realtime_messages?expires_at_ms=not.is.null&expires_at_ms=lte.${nowMs}&redacted=is.false&select=conversation_id,message_id,sender_account_id&limit=500`,
+      undefined,
+      'return=representation',
+    );
+    const hits: ExpiryHit[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const logicalId = r.message_id.split('#')[0];
+      const dedupe = `${r.conversation_id}|${logicalId}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      const out = await this.redactMessages(r.conversation_id, logicalId, r.sender_account_id, 'expired', nowMs);
+      if (out.redacted > 0) {
+        hits.push({ conversationId: r.conversation_id, messageId: logicalId, logSeq: out.tombstoneLogSeq ?? 0 });
+      }
+    }
+    return hits;
   }
 
   async findMessage(messageId: string): Promise<StoredMessage | null> {

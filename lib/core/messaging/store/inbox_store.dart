@@ -238,6 +238,17 @@ class InboxStore {
   }
 
   /// Removes expired disappearing messages (§22).
+  /// FASE 1 §21 (port): erase the envelope row(s) of a logically deleted
+  /// message (delete-for-everyone / expiry consumed on-device). The server
+  /// has already destroyed the ciphertext; the decrypted plaintext is
+  /// memory-only BY DESIGN on this architecture (see file header), so
+  /// deleting the envelope here IS the full local erase.
+  Future<int> redact(MessageId messageId) async {
+    final db = await _db.database;
+    return db.delete('msg_inbox',
+        where: 'message_id = ?', whereArgs: [messageId.value]);
+  }
+
   Future<int> purgeExpired() async {
     final db = await _db.database;
     return db.delete(

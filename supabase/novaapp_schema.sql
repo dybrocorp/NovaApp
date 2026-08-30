@@ -405,6 +405,9 @@ BEGIN
     ('realtime_messages',             'server_seq',            'BIGINT'),
     ('realtime_messages',             'received_at_ms',        'BIGINT'),
     ('realtime_messages',             'client_ts_ms',          'BIGINT'),
+    ('realtime_messages',             'expires_at_ms',         'BIGINT'),
+    ('realtime_messages',             'redacted',              'BOOLEAN'),
+    ('realtime_messages',             'redacted_at_ms',        'BIGINT'),
     ('realtime_events',               'conversation_id',       'TEXT'),
     ('realtime_events',               'type',                  'TEXT'),
     ('realtime_events',               'server_seq',            'BIGINT'),
@@ -995,7 +998,13 @@ CREATE TABLE IF NOT EXISTS realtime_messages (
   header_type       TEXT   NOT NULL,       -- p. ej. 'dr.v1'
   server_seq        BIGINT NOT NULL,
   received_at_ms    BIGINT NOT NULL,
-  client_ts_ms      BIGINT                 -- pista de UI; nunca se confía
+  client_ts_ms      BIGINT,                -- pista de UI; nunca se confía
+  -- FASE 1 §22/§21: expiración (purge del servidor) y redacción por
+  -- delete-for-everyone. ciphertext queda '' (vacío) al redactar: la fila
+  -- sobrevive como tombstone id+seq, NUNCA con contenido.
+  expires_at_ms     BIGINT,
+  redacted          BOOLEAN NOT NULL DEFAULT FALSE,
+  redacted_at_ms    BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS realtime_messages_conversation_seq_idx

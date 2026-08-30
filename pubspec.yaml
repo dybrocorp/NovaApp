@@ -74,6 +74,8 @@ dependencies:
   connectivity_plus: ^6.1.0
 
 dev_dependencies:
+  # FASE 1: real-SQLite messaging store tests run on the host VM.
+  sqflite_common_ffi: ^2.3.3
   flutter_test:
     sdk: flutter
   flutter_launcher_icons: ^0.13.1
