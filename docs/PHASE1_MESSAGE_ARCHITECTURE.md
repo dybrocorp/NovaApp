@@ -348,3 +348,45 @@ No se modifica: Nova ID, Account ID, Device ID, Ed25519, X3DH, Double
 Ratchet, Socket.IO, WebSocket, Realtime Server ni el esquema Supabase
 existente. Los cambios de servidor son **aditivos** (eventos nuevos), y
 las 109 pruebas de FASE 0.5 deben seguir en verde como regresión.
+
+---
+
+## 21. Ported deltas — parallel-engine gaps closed onto this architecture (2026-08-28)
+
+Under option (A) (main canonical), the four genuinely missing capabilities found in the
+gap audit were ported from `arena/01a04505-novaapp` @ `e15325c`. Nothing else was moved;
+the rejected-gap findings (edit/delete/expiration/reply/reaction coverage) are recorded in
+the completion-report addendum.
+
+* **D1 — cold-offline queue.** `MessageSendService` previously discarded user content when
+  no Double Ratchet session existed while disconnected (`NO_SESSION` rejection). It now
+  persists the PLAINTEXT body in the new `msg_pending_send` table
+  (`store/pending_send_store.dart`), keyed by the logical message id (re-queue is a no-op;
+  items expire at the message's own `expires_at` — never persisted indefinitely). On
+  reconnect the app calls `flushPending()`, which encrypts per target, enqueues to the
+  normal Outbox under the ORIGINAL logical id (idempotent at the server), and sends —
+  "no duplication, no loss" holds for cold sends too.
+* **D2 — partial fan-out visibility.** A per-device encryption failure skipped the device
+  silently while the logical message was marked Queued. The service now tracks
+  `SendResult.skippedDevices` for every outcome (including queuedOffline flushes) and
+  re-queues the whole logical message ONLY when no device could be encrypted at all —
+  the sender UI must surface non-empty `skippedDevices`.
+* **D3 — ratchet-state persistence fix.** `RatchetState.toJson()` (frozen FASE 0.5
+  serializer) does not serialize `myRatchetKeyPair`; persisting with it alone loses the
+  private ratchet key across restart. `crypto/ratchet_state_persistence.dart` wraps the
+  frozen serializer and adds one key (`my_ratchet_private`, the 32-byte X25519 seed),
+  restoring via `newKeyPairFromSeed`. Additive format: legacy payloads still decode
+  (without the key — documented, not a regression). The security store keeps whatever
+  protection it already applies to `rootKey`; no new surface.
+* **D4 client side — tombstones.** `MessageReceiveService.onTombstone` handles
+  `message.deleted` / `message.expired` fan-outs by deleting the Inbox envelope; plaintext
+  never touches disk, so envelope removal is the full local wipe. `InboxStore.redact`
+  backs it. `onAck/onDelivered/onRead/onExpired` moved above the redaction barrier
+  (`_isRedacted`).
+
+Server-side counterpart (§19 extended): sender-account-only authorization (non-sender →
+generic `forbidden`, no existence leak), logical-id redaction across ALL per-device
+copies, event-log payload rewrite on redact (sync replay never resurrects content;
+already-acked clients converge via tombstone), `message.expired` fan-out at TTL from the
+sender's authoritative row, and a configurable purge sweep (`messagePurgeIntervalMs`,
+default 5000 ms) bounding the pre-delivery plaintext window for undelivered messages.

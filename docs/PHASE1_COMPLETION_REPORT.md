@@ -272,3 +272,58 @@ corregir lo que aparezca (1), arreglar `gap_detector.dart` (2), escribir
 los adaptadores (3), cablear `NotificationPolicy` (4) y aplicar la
 migración 002 (5). Los puntos 1 y 2 son bloqueantes duros; el resto es
 trabajo acotado y ya diseñado.
+
+---
+
+# APPENDIX — FASE 1 control pass (2026-08-28): gap audit + port
+
+Baseline reset to `main` (`649b3b2`) per option (A): main's architecture is canonical;
+the parallel implementation (`arena/01a04505-novaapp` @ `e15325c`, tag
+`phase1-full-engine-e15325c`) contributed ONLY the capabilities proven missing.
+
+## A.1 Gap audit — 22-item checklist vs main
+
+Items 1,2,4–22 of the checklist exist in main (verified by reading
+`model/message.dart|conversation.dart`, `store/{outbox,inbox}_store.dart`,
+`crypto/*`, `service/message_{send,receive,delivery}_service.dart`, `store/delivery_state.dart`,
+`model/media_reference.dart`, the four `feature/messaging/**` blocs and `realtime_server.ts`).
+Four genuine gaps + one test gap were ported:
+
+| # | Gap (main) | Ported as |
+|---|---|---|
+| D1 | No pre-encryption queue: cold send with no session while offline → `NO_SESSION` rejection = content loss | `PendingSendStore` + `SendResult.queuedOffline` + `flushPending()` (idempotent, original logical id, hard TTL) |
+| D2 | Per-device encryption failure silently skipped (message still "sent") | `SendResult.skippedDevices` on every path; whole-message re-queue only when NOTHING encrypted |
+| D3 | `RatchetState.toJson` drops `myRatchetKeyPair` → restart loses own ratchet private key | `RatchetStatePersistence` additive codec (seed restored via `newKeyPairFromSeed`) |
+| D4 | No server-side delete/tombstone/expiry (client had delete/reply/reaction bodies, server had no command) | `message.delete` command; sender-only `redactMessages`; event-log tombstone rewrite (no sync resurrection); `message.expired` sweep; client `onTombstone` + `InboxStore.redact` |
+| D5 | Port coverage | `server/test/e2e_phase1_delete_expiry.test.ts` (5 tests) + `test/messaging/port_gaps_test.dart` (D1–D3 guards) |
+
+Audited and REJECTED (already present in main, no port needed): edit/delete/reply/
+reaction message bodies and client flows; disappearing-message TTL enforcement;
+per-device dedup; sync gap detection; media architecture; delivery-state store.
+
+## A.2 Test evidence — honest ledger
+
+EXECUTED here:
+* `cd server && npm test` (port applied): main suites **129/129** green, 15.4 s.
+* `server/test/e2e_phase1_delete_expiry.test.ts`: **5/5** green; file typechecks under
+  the test tsconfig.
+* `npm run typecheck`: **clean**.
+
+NOT RUN — Flutter SDK unavailable: `flutter test` (existing 75 messaging suites +
+new `port_gaps_test.dart`). The Dart port is written against APIs read verbatim from
+`main`, but UNCOMPILED here — treat `flutter analyze`/`flutter test` on a workstation
+as the acceptance gate.
+
+NOT RUN — Supabase environment unavailable: schema index + real-store redaction
+(`SupabaseRealtimeStore` implements the same contract as the in-memory store and is
+typechecked, but not exercised against Postgres here).
+
+## A.3 Constraints respected
+
+No changes to: Nova ID, Account/Device id, Ed25519, X3DH, Double Ratchet algorithms
+(frozen serializer untouched; persistence is additive), Socket.IO/WSS, Supabase,
+auth/authz. Server stores ciphertext/ids/sequence/timestamps/delivery-metadata only —
+redaction stores `''` (Supabase NOT NULL) — never plaintext, never private keys;
+ratchet seed stays client-side only. No new tables duplicating existing ones
+(`msg_pending_send` complements `msg_outbox`, which is post-encryption). No God Objects:
+one class per concern, all injected.
