@@ -58,5 +58,7 @@ Datos preservados: 1 dispositivo(s), 1 mensaje(s).
 - `base.sql` simula el entorno Supabase (`auth.users`, `auth.uid()`, los
   roles `anon`/`authenticated`/`service_role`). **No** se ejercita el
   comportamiento de las políticas RLS con JWT reales: se comprueba que se
-  crean, no a quién dejan pasar.
+  crean, no a quién dejan pasar. Eso lo cubre `run_rls_tests.py`: 23 comprobaciones
+  ejecutadas de permiter/denegar con `SET ROLE authenticated` y claims JWT
+  idénticos a los que inyecta Supabase.
 - La versión probada es PostgreSQL 16.2.
