@@ -327,3 +327,37 @@ redaction stores `''` (Supabase NOT NULL) — never plaintext, never private key
 ratchet seed stays client-side only. No new tables duplicating existing ones
 (`msg_pending_send` complements `msg_outbox`, which is post-encryption). No God Objects:
 one class per concern, all injected.
+
+
+---
+
+# APPENDIX — FASE 1.1 (2026-08-31): cierre de bloqueantes y validación real
+
+Detalle completo en `docs/PHASE1_1_BLOCKERS.md` y `docs/PHASE1_1_VALIDATION_REPORT.md`.
+Estado de los cinco bloqueantes de §9 tras este pase:
+
+1. **Dart sin compilar/ejecutar → ABIERTO (entorno).** Intento documentado: sin
+   SDK, egreso hacia fuentes oficiales bloqueado; NO RUN — Environment limitation.
+   Gate final: `flutter analyze && flutter test` en estación (ahora con 2 suites
+   nuevas específicas: `port_gaps_test.dart`, `outbox_retry_policy_test.dart`).
+2. **`gap_detector.dart` "no compila" → CERRADO (refutado).** `enum` anidado es
+   legal desde Dart 2.17; el SDK del proyecto es `^3.10.8`. Sin cambio de código.
+3. **Adaptadores concretos → ABIERTO (decisión de alcance).** Confirmada su
+   ausencia por grep; no se simula su cierre dentro de 1.1 (prohibido UI/features;
+   sería más código sin compilar). Primer ítem del siguiente pase.
+4. **Fuga de notificaciones → CERRADO en código.** Único punto de llamada de
+   `showLocalNotification` en `chat_repository_impl.dart` pasa por
+   `NotificationPolicy.build(senderOnly)`; el texto descifrado ya no viaja al body.
+5. **Migración vs Postgres real → CERRADO, EJECUTADO.** `run_schema_tests.py`
+   14/14 y nuevo `run_rls_tests.py` **23/23** contra PostgreSQL 16.2 (pgserver):
+   esquema + 002 + idempotencia + upgrades legacy + RLS de verdad (permite/deniega),
+   `realtime_*` cerrado a clientes, `service_role` abierto al servidor.
+
+Servidor: 137/137 (nuevas: 3 pruebas de concurrencia/reconexión a mitad de ráfaga,
+`e2e_phase1_concurrency.test.ts`), typecheck limpio, regresión FASE 0.5 intacta.
+Plaintext/keys: `toWire()` sin campos de contenido; lista de redacción del logger
+cubre `private_key/secret/service_role/*text*`; un solo log-path en Dart sin
+material de clave.
+
+**FASE 1.1: NOT READY** — sólo por los criterios Flutter (no ejecutables aquí) y
+el bloqueante 3 (integración). Todo lo demás está verde con prueba ejecutada.
