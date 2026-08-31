@@ -6,6 +6,7 @@ import 'package:novaapp/core/services/supabase_service.dart';
 import 'package:novaapp/core/services/notification_service.dart';
 import 'package:novaapp/core/services/moderation_service.dart';
 import 'package:novaapp/core/services/logger_service.dart';
+import 'package:novaapp/core/messaging/service/notification_policy.dart';
 import 'package:novaapp/features/auth/data/identity_repository.dart';
 import 'package:novaapp/features/chat/domain/chat_repository.dart';
 import 'package:novaapp/features/chat/domain/models.dart';
@@ -110,10 +111,19 @@ class ChatRepositoryImpl implements ChatRepository {
             if (existing.isEmpty) {
               await db.insert(AppConstants.tableMessages, messageMap);
               if (!isMine && contact != null) {
+                // §27 (FASE 1.1, blocker 4): la notificación se construye
+                // SIEMPRE a través de NotificationPolicy. El texto
+                // descifrado no llega al body: viaja por FCM/APNs (terceros)
+                // y se pinta en la pantalla bloqueada.
+                final content = NotificationPolicy.build(
+                  level: NotificationPreviewLevel.senderOnly,
+                  senderDisplayName: contact.name,
+                  conversationId: contact.id,
+                );
                 await _notificationService.showLocalNotification(
-                  title: contact.name,
-                  body: decryptedText ?? 'Nuevo mensaje',
-                  payload: contact.id,
+                  title: content.title,
+                  body: content.body,
+                  payload: content.conversationId,
                 );
               }
             } else {
